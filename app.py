@@ -51,22 +51,42 @@ HOSPITALS = {
     }
 }
 
-user_profiles = {}
-patient_counter = 0
+DATA_FILE = "user_data.json"
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("profiles", {}), data.get("counter", 0)
+        except Exception as e:
+            app.logger.error(f"Error loading {DATA_FILE}: {e}")
+    return {}, 0
+
+def save_data(profiles, counter):
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({"profiles": profiles, "counter": counter}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        app.logger.error(f"Error saving {DATA_FILE}: {e}")
+
+user_profiles, patient_counter = load_data()
 
 def get_or_create_user(user_id):
     global patient_counter
     if user_id not in user_profiles:
         patient_counter += 1
-        code_str = f"KSQ-{patient_counter:04d}"  # 例如第 1 位是 KSQ-0001，第 2 位是 KSQ-0002
+        code_str = f"KSQ-{patient_counter:04d}"  # 第一位病友為 KSQ-0001
         user_profiles[user_id] = {
             "hosp": "三軍總醫院",
             "cancer": "早期乳癌",
             "dose": 2,
-            "stock": 21,
+            "stock": 0,
             "code": code_str,
-            "pharmacy": "躍獅寶湖藥局"
+            "pharmacy": "躍獅寶湖藥局",
+            "is_registered": False
         }
+        save_data(user_profiles, patient_counter)
     return user_profiles[user_id]
 
 def get_onboarding_step1_flex():
@@ -341,6 +361,7 @@ def handle_postback(event):
     # 強制重新建檔
     elif data == "action=force_onboard":
         user["is_registered"] = False
+        save_data(user_profiles, patient_counter)
         flex = get_onboarding_step1_flex()
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 重新開戶建檔", contents=flex))
 
@@ -348,8 +369,9 @@ def handle_postback(event):
     elif data.startswith("set_hosp="):
         hosp_key = data.replace("set_hosp=", "").strip()
         hosp_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
-        user_profiles[user_id]["hosp"] = hosp_info["name"]
-        user_profiles[user_id]["pharmacy"] = hosp_info["pharmacy"]
+        user["hosp"] = hosp_info["name"]
+        user["pharmacy"] = hosp_info["pharmacy"]
+        save_data(user_profiles, patient_counter)
 
         flex = get_onboarding_step2_flex(hosp_info["name"])
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 請選擇治療類型", contents=flex))
@@ -357,18 +379,30 @@ def handle_postback(event):
     # 步驟 2 點選治療類型
     elif data.startswith("set_cancer="):
         c_type = data.replace("set_cancer=", "").strip()
-        user_profiles[user_id]["cancer"] = c_type
+        user["cancer"] = c_type
+        save_data(user_profiles, patient_counter)
 
         flex = get_onboarding_step3_flex(c_type)
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 請選擇每日劑量", contents=flex))
 
-    # 步驟 3 點選劑量
+    # 劑量選擇 (步驟 3 或日常調整劑量)
     elif data.startswith("set_dose="):
         dose_val = int(data.replace("set_dose=", "").strip())
-        user_profiles[user_id]["dose"] = dose_val
+        user["dose"] = dose_val
+        save_data(user_profiles, patient_counter)
 
-        flex = get_onboarding_step4_flex(f"每日 {dose_val} 顆")
-        line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 請輸入現有存藥顆數", contents=flex))
+        if user.get("is_registered", False):
+            # 已建檔過，代表是在圖文選單按「調整劑量」
+            flex = get_profile_summary_flex(user_id)
+            dose_note = f"每日 {dose_val} 顆 ({dose_val*200}mg)" if dose_val > 0 else "暫停服藥"
+            line_bot_api.reply_message(reply_token, [
+                TextSendMessage(text=f"✅ 劑量已更新為：{dose_note}\n系統已為您重新精準試算安全庫存！"),
+                FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
+            ])
+        else:
+            # 尚未建檔，進入步驟 4 請病友輸入手邊存藥顆數
+            flex = get_onboarding_step4_flex(f"每日 {dose_val} 顆")
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 請輸入現有存藥顆數", contents=flex))
 
     # 六宮格按鍵 1: 我的存摺
     elif data == "action=passbook":
@@ -401,9 +435,11 @@ def handle_postback(event):
 
     # 六宮格按鍵 3: 門診速報
     elif data == "action=doctor":
-        p = user_profiles.get(user_id, {"hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821"})
-        dose = p.get("dose", 2)
-        stock = p.get("stock", 21)
+        dose = user.get("dose", 2)
+        stock = user.get("stock", 0)
+        code = user.get("code", "KSQ-0001")
+        hosp = user.get("hosp", "三軍總醫院")
+        cancer = user.get("cancer", "早期乳癌")
         days = stock // dose if dose > 0 else 999
         doc_flex = {
             "type": "bubble",
@@ -417,8 +453,8 @@ def handle_postback(event):
             "body": {
                 "type": "box", "layout": "vertical", "spacing": "sm",
                 "contents": [
-                    {"type": "text", "text": f"病友代號：{p.get('code', 'KSQ-8821')} ｜ 醫院：{p.get('hosp', '三軍總醫院')}", "size": "xs", "weight": "bold", "color": "#991B1B"},
-                    {"type": "text", "text": f"治療類型：{p.get('cancer', '早期乳癌')} (第 1 階段 買 1 送 1)", "size": "xs", "color": "#334155"},
+                    {"type": "text", "text": f"病友代號：{code} ｜ 醫院：{hosp}", "size": "xs", "weight": "bold", "color": "#991B1B"},
+                    {"type": "text", "text": f"治療類型：{cancer} (第 1 階段 買 1 送 1)", "size": "xs", "color": "#334155"},
                     {"type": "text", "text": f"目前劑量：每日 {dose} 顆 ({dose*200}mg)", "size": "sm", "weight": "bold", "color": "#0F172A"},
                     {"type": "text", "text": f"手邊存藥：{stock} 顆（預估剩餘 {days} 天）", "size": "sm", "weight": "bold", "color": "#B91C1C" if days <= 14 else "#0F172A"},
                     {"type": "separator", "margin": "md"},
@@ -474,16 +510,34 @@ def handle_text_message(event):
 
     user = get_or_create_user(user_id)
 
-    # 只要使用者輸入純數字，立即當作【手邊存藥顆數】並秒產出專屬存摺卡片！
+    # 只要使用者輸入純數字
     if any(c.isdigit() for c in text):
         num = int("".join([c for c in text if c.isdigit()]))
-        user["stock"] = num
-        user["is_registered"] = True  # 正式標記為已建檔完成
-        flex = get_profile_summary_flex(user_id)
-        line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🎉 建檔完成！您的專屬擊癌利存摺", contents=flex))
+        
+        # 若尚未建檔完成，此數字為起始存藥
+        if not user.get("is_registered", False):
+            user["stock"] = num
+            user["is_registered"] = True
+            save_data(user_profiles, patient_counter)
+            flex = get_profile_summary_flex(user_id)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🎉 建檔完成！您的專屬擊癌利存摺", contents=flex))
+        else:
+            # 若已經建檔，輸入數字代表【加載新買的顆數】
+            user["stock"] = user.get("stock", 0) + num
+            save_data(user_profiles, patient_counter)
+            receipt_msg = f"✅【購藥登記成功】\n已為您入庫 {num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
+            flex = get_profile_summary_flex(user_id)
+            line_bot_api.reply_message(reply_token, [
+                TextSendMessage(text=receipt_msg),
+                FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
+            ])
     else:
-        flex = get_onboarding_step1_flex()
-        line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 歡迎使用擊癌利小管家", contents=flex))
+        if user.get("is_registered", False):
+            flex = get_profile_summary_flex(user_id)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📕 您的擊癌利存摺", contents=flex))
+        else:
+            flex = get_onboarding_step1_flex()
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 歡迎使用擊癌利小管家", contents=flex))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

@@ -34,7 +34,7 @@
         <div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-rose-200">病友：</span>
-            <span class="font-bold text-sm" id="patient_name_txt">陳雅婷 (代號: KSQ-8821)</span>
+            <span class="font-bold text-sm" id="patient_name_txt">擊癌利專案病友</span>
           </div>
           <div class="flex items-center gap-1.5 mt-0.5">
             <span class="text-xs text-rose-200">主治醫院：</span>
@@ -622,7 +622,14 @@
         rolloverBox.classList.add('hidden');
       }
 
-      // 4. 更新醫院與院外藥局對應資訊
+      // 4. 更新階段自費盒數進度條
+      let boxes = state.paidBoxes;
+      document.getElementById('paid_boxes_txt').innerText = boxes;
+      let left = Math.max(0, 6 - boxes);
+      document.getElementById('boxes_left_txt').innerText = left > 0 ? `再自購 ${left} 盒晉級「買1送3」！` : "已達標！即將晉級買1送3！";
+      document.getElementById('stage_progress_bar').style.width = `${(boxes / 6) * 100}%`;
+
+      // 5. 更新醫院與院外藥局對應資訊
       let hospInfo = hospitalConfig[state.hospitalKey];
       document.getElementById('patient_hosp_badge').innerText = hospInfo.name;
       document.getElementById('pharmacy_match_hosp').innerText = `對應：${hospInfo.name}`;
@@ -640,7 +647,7 @@
         noteBox.classList.add('hidden');
       }
 
-      // 5. 同步更新醫師速報卡
+      // 6. 同步更新醫師速報卡
       document.getElementById('doc_hosp_txt').innerText = hospInfo.name;
       document.getElementById('doc_dose_txt').innerText = state.currentDose > 0 ? `每日 ${state.currentDose} 顆 (${state.currentDose * 200}mg)` : "暫停服藥中";
       document.getElementById('doc_stock_txt').innerText = `${state.stockPills} 顆（剩 ${daysLeft} 天份）`;
@@ -702,19 +709,17 @@
       state.currentDose = dose;
       state.stockPills = stock;
       state.paidBoxes = boxes;
+      state.accumPills = stock;
 
       if (type === "1") {
         document.getElementById('stage_title').innerText = "第 1 階段：買 1 盒送 1 盒（早期專案，三年期）";
-        document.getElementById('patient_name_txt').innerText = "陳雅婷 (早期乳癌 / 代號: KSQ-8821)";
       } else {
         document.getElementById('stage_title').innerText = "第 1 階段：買 1 盒送 1 盒（轉移性專案，五年期）";
-        document.getElementById('patient_name_txt').innerText = "陳雅婷 (轉移性乳癌 / 代號: KSQ-8821)";
       }
 
-      document.getElementById('paid_boxes_txt').innerText = boxes;
-      let left = Math.max(0, 6 - boxes);
-      document.getElementById('boxes_left_txt').innerText = left > 0 ? `再自購 ${left} 盒晉級「買1送3」！` : "已達標！即將晉級買1送3！";
-      document.getElementById('stage_progress_bar').style.width = `${(boxes / 6) * 100}%`;
+      closeOnboardingModal();
+      recalculate();
+    }
 
     // 初始化渲染並支援讀取 URL 參數
     function initFromUrl() {
@@ -724,6 +729,7 @@
       const cancer = params.get('cancer');
       const dose = params.get('dose');
       const stock = params.get('stock');
+      const boxes = params.get('boxes');
 
       if (hosp) {
         if (hosp.includes('長庚')) state.hospitalKey = 'cgmh';
@@ -737,14 +743,25 @@
         state.currentDose = parseInt(dose) || 2;
       }
       if (stock) {
-        state.stockPills = parseInt(stock) || 0;
-        state.accumPills = parseInt(stock) || 0;
+        const sVal = parseInt(stock) || 0;
+        state.stockPills = sVal;
+        state.accumPills = sVal;
+      }
+      if (boxes !== null && boxes !== undefined) {
+        state.paidBoxes = parseInt(boxes) || 0;
+      } else if (stock) {
+        // 若未指定盒數，依輸入的顆數推估已購盒數 (每盒 63 顆)
+        state.paidBoxes = Math.min(6, Math.max(1, Math.ceil((parseInt(stock) || 0) / 63)));
       }
 
-      // 更新病友姓名/代號
       const typeLabel = state.patientType === '1' ? '早期乳癌' : '轉移性乳癌';
-      document.getElementById('patient_name_txt').innerText = `病友 (${typeLabel} / 代號: ${code})`;
-      
+      document.getElementById('patient_name_txt').innerText = `病友（代號: ${code}）`;
+      if (state.patientType === '1') {
+        document.getElementById('stage_title').innerText = "第 1 階段：買 1 盒送 1 盒（早期專案，三年期）";
+      } else {
+        document.getElementById('stage_title').innerText = "第 1 階段：買 1 盒送 1 盒（轉移性專案，五年期）";
+      }
+
       recalculate();
     }
 
