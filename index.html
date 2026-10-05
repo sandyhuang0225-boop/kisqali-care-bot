@@ -716,12 +716,39 @@
       document.getElementById('boxes_left_txt').innerText = left > 0 ? `再自購 ${left} 盒晉級「買1送3」！` : "已達標！即將晉級買1送3！";
       document.getElementById('stage_progress_bar').style.width = `${(boxes / 6) * 100}%`;
 
-      closeOnboardingModal();
+    // 初始化渲染並支援讀取 URL 參數
+    function initFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code') || 'KSQ-0001';
+      const hosp = params.get('hosp');
+      const cancer = params.get('cancer');
+      const dose = params.get('dose');
+      const stock = params.get('stock');
+
+      if (hosp) {
+        if (hosp.includes('長庚')) state.hospitalKey = 'cgmh';
+        else if (hosp.includes('國泰')) state.hospitalKey = 'xg';
+        else state.hospitalKey = 'tsgh';
+      }
+      if (cancer) {
+        state.patientType = cancer.includes('晚期') ? '2' : '1';
+      }
+      if (dose) {
+        state.currentDose = parseInt(dose) || 2;
+      }
+      if (stock) {
+        state.stockPills = parseInt(stock) || 0;
+        state.accumPills = parseInt(stock) || 0;
+      }
+
+      // 更新病友姓名/代號
+      const typeLabel = state.patientType === '1' ? '早期乳癌' : '轉移性乳癌';
+      document.getElementById('patient_name_txt').innerText = `病友 (${typeLabel} / 代號: ${code})`;
+      
       recalculate();
     }
 
-    // 初始化渲染
-    recalculate();
+    initFromUrl();
   </script>
 </body>
 </html>

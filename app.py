@@ -246,7 +246,11 @@ def get_profile_summary_flex(user_id):
             "contents": [
                 {
                     "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
-                    "action": {"type": "uri", "label": "📱 開啟完整存摺", "uri": "https://kisqali-care-bot.onrender.com/"}
+                    "action": {
+                        "type": "uri",
+                        "label": "📱 開啟完整存摺",
+                        "uri": f"https://kisqali-care-bot.onrender.com/?code={p.get('code', 'KSQ-0001')}&hosp={p.get('hosp', '三軍總醫院')}&cancer={p.get('cancer', '早期乳癌')}&dose={dose}&stock={stock}"
+                    }
                 },
                 {
                     "type": "button", "style": "secondary", "height": "sm",
