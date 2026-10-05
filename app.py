@@ -293,10 +293,56 @@ def handle_postback(event):
 
     user = get_or_create_user(user_id)
 
-    # 六宮格按鍵 6: 病友建檔
+    # 六宮格按鍵 6: 病友建檔 (防呆：若已建檔，提示不可重複並提供覆蓋按鈕)
     if data == "action=onboard":
+        if user.get("is_registered", False):
+            # 已建檔過，跳出防呆提醒卡片
+            already_flex = {
+                "type": "bubble",
+                "header": {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#B45309",
+                    "contents": [
+                        {"type": "text", "text": "⚠️ 您已經完成過開戶建檔！", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                        {"type": "text", "text": f"專屬代號：{user['code']} ｜ 避免重複開戶", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
+                    ]
+                },
+                "body": {
+                    "type": "box", "layout": "vertical", "spacing": "sm",
+                    "contents": [
+                        {"type": "text", "text": "系統已有您的建檔紀錄，請勿重複開戶：", "size": "xs", "color": "#64748B"},
+                        {"type": "text", "text": f"• 就診醫院：{user['hosp']}", "size": "xs", "color": "#0F172A", "weight": "bold"},
+                        {"type": "text", "text": f"• 治療類型：{user['cancer']}", "size": "xs", "color": "#0F172A"},
+                        {"type": "text", "text": f"• 目前劑量：每日 {user['dose']} 顆", "size": "xs", "color": "#0F172A"},
+                        {"type": "text", "text": f"• 現有存藥：{user['stock']} 顆", "size": "xs", "color": "#991B1B", "weight": "bold"},
+                        {"type": "separator", "margin": "md"},
+                        {"type": "text", "text": "💡 若僅需補藥或調整劑量，請直接使用下方「購藥登記」或「調整劑量」功能。若確實需重設，請點下方按鈕：", "size": "xxs", "color": "#94A3B8", "wrap": True}
+                    ]
+                },
+                "footer": {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "button", "style": "primary", "color": "#047857", "height": "sm",
+                            "action": {"type": "postback", "label": "📕 查看我的存摺", "data": "action=passbook"}
+                        },
+                        {
+                            "type": "button", "style": "secondary", "height": "sm",
+                            "action": {"type": "postback", "label": "🔄 確認重新建檔", "data": "action=force_onboard"}
+                        }
+                    ]
+                }
+            }
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 您已建檔過，請勿重複建檔", contents=already_flex))
+            return
+
         flex = get_onboarding_step1_flex()
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 新病友開戶建檔", contents=flex))
+
+    # 強制重新建檔
+    elif data == "action=force_onboard":
+        user["is_registered"] = False
+        flex = get_onboarding_step1_flex()
+        line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 重新開戶建檔", contents=flex))
 
     # 步驟 1 點選醫院
     elif data.startswith("set_hosp="):
@@ -431,7 +477,8 @@ def handle_text_message(event):
     # 只要使用者輸入純數字，立即當作【手邊存藥顆數】並秒產出專屬存摺卡片！
     if any(c.isdigit() for c in text):
         num = int("".join([c for c in text if c.isdigit()]))
-        user_profiles[user_id]["stock"] = num
+        user["stock"] = num
+        user["is_registered"] = True  # 正式標記為已建檔完成
         flex = get_profile_summary_flex(user_id)
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🎉 建檔完成！您的專屬擊癌利存摺", contents=flex))
     else:
