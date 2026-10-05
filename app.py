@@ -7,6 +7,7 @@
 import os
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request, abort, jsonify, send_from_directory
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -14,6 +15,15 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, PostbackEvent,
     FlexSendMessage
 )
+
+# 台灣時區 (UTC+8)
+TW_TZ = timezone(timedelta(hours=8))
+
+def get_taiwan_today():
+    return datetime.now(TW_TZ).strftime("%Y-%m-%d")
+
+def get_taiwan_now_str():
+    return datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M")
 
 app = Flask(__name__, static_folder=".")
 logging.basicConfig(level=logging.INFO)
@@ -500,7 +510,66 @@ def handle_postback(event):
 
     # 六宮格按鍵 2: 購藥登記
     elif data == "action=receipt":
-        line_bot_api.reply_message(reply_token, TextSendMessage(text="🧾【購藥收據登記】\n請直接在聊天室輸入本次購買顆數，例如打「21」或「14」！多出的顆數將自動為您滾入下一期繼續累積！"))
+        today_str = get_taiwan_today()
+        last_date = user.get("last_purchase_date")
+        last_pills = user.get("last_purchase_pills", 0)
+        
+        hint = "🧾【購藥收據登記】\n請直接在聊天室輸入本次購買顆數，例如打「21」或「14」！多出的顆數將自動滾入下一期累積！"
+        if last_date == today_str and last_pills > 0:
+            hint += f"\n\n💡 提示：您今天（{today_str}）已有一筆登記 {last_pills} 顆的紀錄。"
+        line_bot_api.reply_message(reply_token, TextSendMessage(text=hint))
+
+    # 確認加買 (重複購買二次確認：真的再加買)
+    elif data.startswith("confirm_add_purchase="):
+        num = int(data.replace("confirm_add_purchase=", "").strip())
+        today_str = get_taiwan_today()
+        now_time_str = get_taiwan_now_str()
+        
+        user["stock"] = user.get("stock", 0) + num
+        user["last_purchase_date"] = today_str
+        user["last_purchase_time"] = now_time_str
+        user["last_purchase_pills"] = num
+        user["pending_purchase"] = 0
+        save_data(user_profiles, patient_counter)
+
+        receipt_msg = f"✅【確認再加買登記成功】\n已為您額外入庫 {num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
+        flex = get_profile_summary_flex(user_id)
+        line_bot_api.reply_message(reply_token, [
+            TextSendMessage(text=receipt_msg),
+            FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
+        ])
+
+    # 更正覆蓋 (重複購買二次更正：修正為本次輸入的顆數)
+    elif data.startswith("overwrite_purchase="):
+        new_num = int(data.replace("overwrite_purchase=", "").strip())
+        old_num = user.get("last_purchase_pills", 0)
+        today_str = get_taiwan_today()
+        now_time_str = get_taiwan_now_str()
+
+        # 扣除先前登記的 old_num，加上 new_num
+        user["stock"] = max(0, user.get("stock", 0) - old_num + new_num)
+        user["last_purchase_date"] = today_str
+        user["last_purchase_time"] = now_time_str
+        user["last_purchase_pills"] = new_num
+        user["pending_purchase"] = 0
+        save_data(user_profiles, patient_counter)
+
+        receipt_msg = f"🔄【更正今日購藥顆數】\n已將今日（{today_str}）登記由 {old_num} 顆更正為 {new_num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
+        flex = get_profile_summary_flex(user_id)
+        line_bot_api.reply_message(reply_token, [
+            TextSendMessage(text=receipt_msg),
+            FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
+        ])
+
+    # 放棄/維持原樣
+    elif data == "cancel_purchase":
+        user["pending_purchase"] = 0
+        save_data(user_profiles, patient_counter)
+        flex = get_profile_summary_flex(user_id)
+        line_bot_api.reply_message(reply_token, [
+            TextSendMessage(text="👌 已為您保留原登記紀錄，未重複扣除或累加！"),
+            FlexSendMessage(alt_text="📕 您的擊癌利存摺", contents=flex)
+        ])
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
@@ -513,19 +582,98 @@ def handle_text_message(event):
     # 只要使用者輸入純數字
     if any(c.isdigit() for c in text):
         num = int("".join([c for c in text if c.isdigit()]))
+        today_str = get_taiwan_today()
+        now_time_str = get_taiwan_now_str()
         
         # 若尚未建檔完成，此數字為起始存藥
         if not user.get("is_registered", False):
             user["stock"] = num
             user["is_registered"] = True
+            user["last_purchase_date"] = today_str
+            user["last_purchase_time"] = now_time_str
+            user["last_purchase_pills"] = num
             save_data(user_profiles, patient_counter)
             flex = get_profile_summary_flex(user_id)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🎉 建檔完成！您的專屬擊癌利存摺", contents=flex))
         else:
-            # 若已經建檔，輸入數字代表【加載新買的顆數】
+            # 已建檔過，判斷今日是否已登記過（防呆機制）
+            last_date = user.get("last_purchase_date")
+            last_time = user.get("last_purchase_time", today_str)
+            last_pills = user.get("last_purchase_pills", 0)
+
+            # 今日已登記過 ➔ 觸發防呆提醒卡片，避免重複連續 key 入！
+            if last_date == today_str and last_pills > 0:
+                user["pending_purchase"] = num
+                save_data(user_profiles, patient_counter)
+
+                dup_flex = {
+                    "type": "bubble",
+                    "header": {
+                        "type": "box", "layout": "vertical", "backgroundColor": "#B45309",
+                        "contents": [
+                            {"type": "text", "text": "⚠️ 發現今日已有購藥登記！", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                            {"type": "text", "text": f"防呆檢查 ｜ 日期：{today_str}", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
+                        ]
+                    },
+                    "body": {
+                        "type": "box", "layout": "vertical", "spacing": "sm",
+                        "contents": [
+                            {"type": "text", "text": f"您今天稍早（{last_time}）已經登記過一次：", "size": "xs", "color": "#64748B"},
+                            {
+                                "type": "box", "layout": "vertical", "backgroundColor": "#FEF3C7", "cornerRadius": "md", "paddingAll": "sm",
+                                "contents": [
+                                    {"type": "text", "text": f"• 今日已登錄：{last_pills} 顆", "size": "xs", "weight": "bold", "color": "#92400E"},
+                                    {"type": "text", "text": f"• 剛才又輸入：{num} 顆", "size": "xs", "weight": "bold", "color": "#B91C1C"}
+                                ]
+                            },
+                            {"type": "separator", "margin": "sm"},
+                            {"type": "text", "text": "為避免您重複累計或打錯，請選擇以下處理方式：", "size": "xs", "color": "#334155"}
+                        ]
+                    },
+                    "footer": {
+                        "type": "box", "layout": "vertical", "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "button", "style": "secondary", "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": f"❌ 忘記已打過，維持 {last_pills} 顆不變",
+                                    "data": "cancel_purchase",
+                                    "displayText": "維持不變"
+                                }
+                            },
+                            {
+                                "type": "button", "style": "primary", "color": "#C2410C", "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": f"🔄 剛才打錯了，更正為 {num} 顆",
+                                    "data": f"overwrite_purchase={num}",
+                                    "displayText": f"更正為 {num} 顆"
+                                }
+                            },
+                            {
+                                "type": "button", "style": "primary", "color": "#047857", "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": f"➕ 確實多買，再累加 {num} 顆",
+                                    "data": f"confirm_add_purchase={num}",
+                                    "displayText": f"確認再加買 {num} 顆"
+                                }
+                            }
+                        ]
+                    }
+                }
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 今日已登記過購藥，請確認是否重複", contents=dup_flex))
+                return
+
+            # 今日第一次登記購藥，直接入庫並記錄今日日期
             user["stock"] = user.get("stock", 0) + num
+            user["last_purchase_date"] = today_str
+            user["last_purchase_time"] = now_time_str
+            user["last_purchase_pills"] = num
             save_data(user_profiles, patient_counter)
-            receipt_msg = f"✅【購藥登記成功】\n已為您入庫 {num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
+
+            receipt_msg = f"✅【購藥登記成功】\n登記日期：{today_str}\n已為您入庫：{num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
             flex = get_profile_summary_flex(user_id)
             line_bot_api.reply_message(reply_token, [
                 TextSendMessage(text=receipt_msg),
