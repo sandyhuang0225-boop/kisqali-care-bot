@@ -13,7 +13,7 @@ from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, ReplyMessageRequest,
     FlexMessage, FlexContainer, TextMessage
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 app = Flask(__name__, static_folder=".")
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +53,7 @@ HOSPITALS = {
 
 user_profiles = {}
 
+# 【步驟 1】選擇醫院
 def get_onboarding_step1_flex():
     return {
         "type": "bubble",
@@ -67,13 +68,14 @@ def get_onboarding_step1_flex():
             "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
                 {"type": "text", "text": "請直接點選下方任一家醫院按鈕：", "size": "xs", "color": "#64748B"},
-                {"type": "button", "style": "primary", "color": "#991B1B", "height": "sm", "action": {"type": "message", "label": "🏥 三軍總醫院（內湖/汀州/松山）", "text": "設定醫院：三總"}},
-                {"type": "button", "style": "primary", "color": "#B91C1C", "height": "sm", "action": {"type": "message", "label": "🏥 基隆長庚醫院（基隆/情人湖）", "text": "設定醫院：基隆長庚"}},
-                {"type": "button", "style": "primary", "color": "#DC2626", "height": "sm", "action": {"type": "message", "label": "🏥 汐止國泰醫院", "text": "設定醫院：汐止國泰"}}
+                {"type": "button", "style": "primary", "color": "#991B1B", "height": "sm", "action": {"type": "postback", "label": "🏥 三軍總醫院（內湖/汀州/松山）", "data": "set_hosp=三總", "displayText": "三軍總醫院"}},
+                {"type": "button", "style": "primary", "color": "#B91C1C", "height": "sm", "action": {"type": "postback", "label": "🏥 基隆長庚醫院（基隆/情人湖）", "data": "set_hosp=基隆長庚", "displayText": "基隆長庚醫院"}},
+                {"type": "button", "style": "primary", "color": "#DC2626", "height": "sm", "action": {"type": "postback", "label": "🏥 汐止國泰醫院", "data": "set_hosp=汐止國泰", "displayText": "汐止國泰醫院"}}
             ]
         }
     }
 
+# 【步驟 2】選擇治療類型
 def get_onboarding_step2_flex(hospital_name):
     return {
         "type": "bubble",
@@ -81,19 +83,20 @@ def get_onboarding_step2_flex(hospital_name):
             "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
             "contents": [
                 {"type": "text", "text": "✨ 新病友開戶建檔", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                {"type": "text", "text": f"已選擇：{hospital_name} ｜ 【步驟 2/4】治療類型", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": f"已選醫院：{hospital_name} ｜ 【步驟 2/4】治療類型", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
                 {"type": "text", "text": "請依主治醫師診斷點選您的治療階段：", "size": "xs", "color": "#64748B"},
-                {"type": "button", "style": "primary", "color": "#059669", "height": "sm", "action": {"type": "message", "label": "🌸 早期乳癌（EBC・3年方案）", "text": "設定類型：早期乳癌"}},
-                {"type": "button", "style": "primary", "color": "#D97706", "height": "sm", "action": {"type": "message", "label": "🎗️ 轉移晚期乳癌（MBC・5年方案）", "text": "設定類型：晚期乳癌"}}
+                {"type": "button", "style": "primary", "color": "#059669", "height": "sm", "action": {"type": "postback", "label": "🌸 早期乳癌（EBC・3年方案）", "data": "set_cancer=早期乳癌", "displayText": "早期乳癌"}},
+                {"type": "button", "style": "primary", "color": "#D97706", "height": "sm", "action": {"type": "postback", "label": "🎗️ 轉移晚期乳癌（MBC・5年方案）", "data": "set_cancer=晚期乳癌", "displayText": "晚期乳癌"}}
             ]
         }
     }
 
+# 【步驟 3】選擇每日劑量
 def get_onboarding_step3_flex(cancer_type):
     return {
         "type": "bubble",
@@ -101,20 +104,21 @@ def get_onboarding_step3_flex(cancer_type):
             "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
             "contents": [
                 {"type": "text", "text": "✨ 新病友開戶建檔", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                {"type": "text", "text": f"已選擇：{cancer_type} ｜ 【步驟 3/4】每日劑量", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": f"已選類型：{cancer_type} ｜ 【步驟 3/4】每日劑量", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
                 {"type": "text", "text": "請依醫師處方點選每日服用顆數：", "size": "xs", "color": "#64748B"},
-                {"type": "button", "style": "primary", "color": "#1E293B", "height": "sm", "action": {"type": "message", "label": "💊 每日 3 顆（600 mg）", "text": "設定劑量：3顆"}},
-                {"type": "button", "style": "primary", "color": "#334155", "height": "sm", "action": {"type": "message", "label": "💊 每日 2 顆（400 mg）", "text": "設定劑量：2顆"}},
-                {"type": "button", "style": "primary", "color": "#475569", "height": "sm", "action": {"type": "message", "label": "💊 每日 1 顆（200 mg）", "text": "設定劑量：1顆"}}
+                {"type": "button", "style": "primary", "color": "#1E293B", "height": "sm", "action": {"type": "postback", "label": "💊 每日 3 顆（600 mg 起始劑量）", "data": "set_dose=3", "displayText": "每日 3 顆"}},
+                {"type": "button", "style": "primary", "color": "#334155", "height": "sm", "action": {"type": "postback", "label": "💊 每日 2 顆（400 mg 標準/一級減量）", "data": "set_dose=2", "displayText": "每日 2 顆"}},
+                {"type": "button", "style": "primary", "color": "#475569", "height": "sm", "action": {"type": "postback", "label": "💊 每日 1 顆（200 mg 二級減量）", "data": "set_dose=1", "displayText": "每日 1 顆"}}
             ]
         }
     }
 
+# 【步驟 4】手邊存藥引導直接輸入數字
 def get_onboarding_step4_flex(dose_str):
     return {
         "type": "bubble",
@@ -122,34 +126,45 @@ def get_onboarding_step4_flex(dose_str):
             "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
             "contents": [
                 {"type": "text", "text": "✨ 新病友開戶建檔", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                {"type": "text", "text": f"已選擇劑量：{dose_str} ｜ 【步驟 4/4】手邊存藥", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": f"已選劑量：{dose_str} ｜ 【步驟 4/4】現有存藥", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
-            "type": "box", "layout": "vertical", "spacing": "sm",
+            "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
-                {"type": "text", "text": "請點選目前手邊約有多少顆藥，或直接輸入數字：", "size": "xs", "color": "#64748B"},
                 {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "type": "text",
+                    "text": "請直接在下方聊天室輸入您手邊「目前剩餘的確切顆數」：",
+                    "size": "sm",
+                    "weight": "bold",
+                    "color": "#0F172A",
+                    "wrap": True
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": "#F8FAFC",
+                    "cornerRadius": "md",
+                    "paddingAll": "md",
+                    "borderWidth": "light",
+                    "borderColor": "#CBD5E1",
                     "contents": [
-                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "message", "label": "14 顆", "text": "設定庫存：14"}},
-                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "message", "label": "21 顆", "text": "設定庫存：21"}},
-                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "message", "label": "42 顆", "text": "設定庫存：42"}}
+                        {"type": "text", "text": "👉 請直接打數字並送出，例如：", "size": "xs", "color": "#64748B"},
+                        {"type": "text", "text": "「14」 或 「25」 或 「40」", "size": "lg", "weight": "bold", "color": "#991B1B", "margin": "sm"}
                     ]
                 },
                 {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
-                    "contents": [
-                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "message", "label": "63 顆 (1盒)", "text": "設定庫存：63"}},
-                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "message", "label": "0 顆 (剛拿處方)", "text": "設定庫存：0"}}
-                    ]
-                },
-                {"type": "separator", "margin": "md"},
-                {"type": "text", "text": "💡 亦可在聊天室直接輸入如「28」快速登記！", "size": "xxs", "color": "#94A3B8", "align": "center"}
+                    "type": "text",
+                    "text": "💡 每個病人購買的顆數都不一樣，系統會依您輸入的數字為您精準試算剩餘天數並啟動安全警報！",
+                    "size": "xs",
+                    "color": "#64748B",
+                    "wrap": True
+                }
             ]
         }
     }
 
+# 存摺總結卡片
 def get_profile_summary_flex(user_id):
     p = user_profiles.get(user_id, {
         "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
@@ -224,7 +239,7 @@ def get_profile_summary_flex(user_id):
                 },
                 {
                     "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "message", "label": "⚙️ 重新建檔", "text": "病友建檔"}
+                    "action": {"type": "postback", "label": "⚙️ 重新建檔", "data": "action=onboard"}
                 }
             ]
         }
@@ -255,32 +270,33 @@ def callback():
 
     return "OK", 200
 
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
-    text = event.message.text.strip()
+# 處理六宮格與按鈕 Postback 事件 (完全免疫任何文字編碼問題)
+@handler.add(PostbackEvent)
+def handle_postback(event):
+    data = event.postback.data
     user_id = event.source.user_id
     reply_token = event.reply_token
 
     if user_id not in user_profiles:
         user_profiles[user_id] = {
-            "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 20, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
+            "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
         }
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
 
-        # 1. 點選「病友建檔」按鍵 ➔ 觸發【步驟 1：選擇醫院按鈕】
-        if "建檔" in text:
+        # 六宮格按鍵 6: 病友建檔
+        if data == "action=onboard":
             flex = get_onboarding_step1_flex()
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[FlexMessage(alt_text="✨ 新病友建檔 - 請選擇醫院", contents=FlexContainer.from_dict(flex))]
+                messages=[FlexMessage(alt_text="✨ 新病友開戶建檔", contents=FlexContainer.from_dict(flex))]
             ))
 
-        # 接收醫院點選 (支援點擊「設定醫院：三總」或「三總」、「基隆長庚」、「汐止國泰」)
-        elif "三總" in text or "長庚" in text or "國泰" in text:
-            hosp_key = "基隆長庚" if "長庚" in text else ("汐止國泰" if "國泰" in text else "三總")
-            hosp_info = HOSPITALS[hosp_key]
+        # 步驟 1 點選醫院
+        elif data.startswith("set_hosp="):
+            hosp_key = data.replace("set_hosp=", "").strip()
+            hosp_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
             user_profiles[user_id]["hosp"] = hosp_info["name"]
             user_profiles[user_id]["pharmacy"] = hosp_info["pharmacy"]
 
@@ -290,9 +306,9 @@ def handle_message(event):
                 messages=[FlexMessage(alt_text="✨ 請選擇治療類型", contents=FlexContainer.from_dict(flex))]
             ))
 
-        # 接收類型點選 (支援「早期」或「晚期」)
-        elif "早期" in text or "晚期" in text or "EBC" in text or "MBC" in text:
-            c_type = "早期乳癌 (EBC)" if ("早期" in text or "EBC" in text) else "晚期乳癌 (MBC)"
+        # 步驟 2 點選治療類型
+        elif data.startswith("set_cancer="):
+            c_type = data.replace("set_cancer=", "").strip()
             user_profiles[user_id]["cancer"] = c_type
 
             flex = get_onboarding_step3_flex(c_type)
@@ -301,46 +317,27 @@ def handle_message(event):
                 messages=[FlexMessage(alt_text="✨ 請選擇每日劑量", contents=FlexContainer.from_dict(flex))]
             ))
 
-        # 接收劑量點選 (支援「3顆」、「2顆」、「1顆」、「暫停」)
-        elif any(k in text for k in ["3顆", "2顆", "1顆", "3 顆", "2 顆", "1 顆", "暫停"]):
-            if "3" in text:
-                dose = 3
-            elif "1" in text:
-                dose = 1
-            elif "暫停" in text or "0" in text:
-                dose = 0
-            else:
-                dose = 2
-            user_profiles[user_id]["dose"] = dose
+        # 步驟 3 點選劑量
+        elif data.startswith("set_dose="):
+            dose_val = int(data.replace("set_dose=", "").strip())
+            user_profiles[user_id]["dose"] = dose_val
 
-            flex = get_onboarding_step4_flex(f"{dose} 顆/天" if dose > 0 else "暫停服藥")
+            flex = get_onboarding_step4_flex(f"每日 {dose_val} 顆")
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[FlexMessage(alt_text="✨ 請選擇手邊存藥顆數", contents=FlexContainer.from_dict(flex))]
+                messages=[FlexMessage(alt_text="✨ 請輸入現有存藥顆數", contents=FlexContainer.from_dict(flex))]
             ))
 
-        # 接收庫存點選 (支援「庫存」、「顆」或純數字)
-        elif "庫存" in text or "顆" in text or text.isdigit():
-            num_part = "".join([c for c in text if c.isdigit()])
-            stock_num = int(num_part) if num_part else 21
-            user_profiles[user_id]["stock"] = stock_num
-
-            flex = get_profile_summary_flex(user_id)
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[FlexMessage(alt_text="🎉 建檔成功！您的擊癌利存摺", contents=FlexContainer.from_dict(flex))]
-            ))
-
-        # 2. 擊癌利存摺
-        elif "存摺" in text:
+        # 六宮格按鍵 1: 我的存摺
+        elif data == "action=passbook":
             flex = get_profile_summary_flex(user_id)
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[FlexMessage(alt_text="📕 您的擊癌利存摺", contents=FlexContainer.from_dict(flex))]
             ))
 
-        # 3. 劑量調整
-        elif "劑量" in text:
+        # 六宮格按鍵 4: 劑量調整
+        elif data == "action=dose":
             dose_flex = {
                 "type": "bubble",
                 "header": {
@@ -354,10 +351,10 @@ def handle_message(event):
                     "type": "box", "layout": "vertical", "spacing": "sm",
                     "contents": [
                         {"type": "text", "text": "請直接點選本次門診醫師開立之最新劑量：", "size": "xs", "color": "#64748B"},
-                        {"type": "button", "style": "primary", "color": "#1E293B", "height": "sm", "action": {"type": "message", "label": "3 顆 / 天 (600mg 起始劑量)", "text": "3顆"}},
-                        {"type": "button", "style": "primary", "color": "#334155", "height": "sm", "action": {"type": "message", "label": "2 顆 / 天 (400mg 標準/一級減量)", "text": "2顆"}},
-                        {"type": "button", "style": "primary", "color": "#475569", "height": "sm", "action": {"type": "message", "label": "1 顆 / 天 (200mg 二級減量)", "text": "1顆"}},
-                        {"type": "button", "style": "primary", "color": "#D97706", "height": "sm", "action": {"type": "message", "label": "暫停服藥 (副作用休養，不扣庫存)", "text": "暫停服藥"}}
+                        {"type": "button", "style": "primary", "color": "#1E293B", "height": "sm", "action": {"type": "postback", "label": "3 顆 / 天 (600mg 起始劑量)", "data": "set_dose=3", "displayText": "改為 3 顆"}},
+                        {"type": "button", "style": "primary", "color": "#334155", "height": "sm", "action": {"type": "postback", "label": "2 顆 / 天 (400mg 標準/一級減量)", "data": "set_dose=2", "displayText": "改為 2 顆"}},
+                        {"type": "button", "style": "primary", "color": "#475569", "height": "sm", "action": {"type": "postback", "label": "1 顆 / 天 (200mg 二級減量)", "data": "set_dose=1", "displayText": "改為 1 顆"}},
+                        {"type": "button", "style": "primary", "color": "#D97706", "height": "sm", "action": {"type": "postback", "label": "暫停服藥 (副作用休養，不扣庫存)", "data": "set_dose=0", "displayText": "暫停服藥"}}
                     ]
                 }
             }
@@ -366,8 +363,8 @@ def handle_message(event):
                 messages=[FlexMessage(alt_text="⚙️ 醫師調整劑量", contents=FlexContainer.from_dict(dose_flex))]
             ))
 
-        # 4. 門診速報
-        elif "門診" in text or "速報" in text:
+        # 六宮格按鍵 3: 門診速報
+        elif data == "action=doctor":
             p = user_profiles.get(user_id, {"hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821"})
             dose = p.get("dose", 2)
             stock = p.get("stock", 21)
@@ -398,8 +395,8 @@ def handle_message(event):
                 messages=[FlexMessage(alt_text="🏥 擊癌利門診速報卡", contents=FlexContainer.from_dict(doc_flex))]
             ))
 
-        # 5. 領藥流程
-        elif "領藥" in text or "流程" in text:
+        # 六宮格按鍵 5: 領藥流程
+        elif data == "action=sop":
             p = user_profiles.get(user_id, {"hosp": "三軍總醫院", "pharmacy": "躍獅寶湖藥局"})
             hosp_key = "基隆長庚" if "長庚" in p.get("hosp", "") else ("汐止國泰" if "國泰" in p.get("hosp", "") else "三總")
             ph_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
@@ -435,38 +432,37 @@ def handle_message(event):
                 messages=[FlexMessage(alt_text="📬 贈藥申請與領藥流程", contents=FlexContainer.from_dict(sop_flex))]
             ))
 
-        # 6. 購藥登記
-        elif "購藥" in text or "收據" in text:
-            rec_flex = {
-                "type": "bubble",
-                "header": {
-                    "type": "box", "layout": "vertical", "backgroundColor": "#065F46",
-                    "contents": [
-                        {"type": "text", "text": "🧾 零存整付・購藥收據登記", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                        {"type": "text", "text": "滿 63 顆贈送 1 盒 ｜ 多餘顆數自動滾入下期", "color": "#D1FAE5", "size": "xs", "margin": "xs"}
-                    ]
-                },
-                "body": {
-                    "type": "box", "layout": "vertical", "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "請直接點選本次購買顆數快速登記：", "size": "xs", "color": "#64748B"},
-                        {
-                            "type": "box", "layout": "horizontal", "spacing": "sm",
-                            "contents": [
-                                {"type": "button", "style": "primary", "color": "#059669", "height": "sm", "action": {"type": "message", "label": "+ 14 顆", "text": "14顆"}},
-                                {"type": "button", "style": "primary", "color": "#059669", "height": "sm", "action": {"type": "message", "label": "+ 21 顆", "text": "21顆"}},
-                                {"type": "button", "style": "primary", "color": "#059669", "height": "sm", "action": {"type": "message", "label": "+ 42 顆", "text": "42顆"}}
-                            ]
-                        },
-                        {"type": "button", "style": "primary", "color": "#047857", "height": "sm", "action": {"type": "message", "label": "+ 63 顆 (自費整盒)", "text": "63顆"}}
-                    ]
-                }
-            }
+        # 六宮格按鍵 2: 購藥登記
+        elif data == "action=receipt":
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[FlexMessage(alt_text="🧾 零存整付購藥登記", contents=FlexContainer.from_dict(rec_flex))]
+                messages=[TextMessage(text="🧾【購藥收據登記】\n請直接在聊天室輸入本次購買顆數，例如打「21」或「14」！多出的顆數將自動為您滾入下一期繼續累積！")]
             ))
 
+# 處理使用者直接打數字 (例如輸入「18」或「35」存藥顆數)
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+    text = event.message.text.strip()
+    user_id = event.source.user_id
+    reply_token = event.reply_token
+
+    if user_id not in user_profiles:
+        user_profiles[user_id] = {
+            "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
+        }
+
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+
+        # 只要使用者輸入純數字，立即當作【手邊存藥顆數】並秒產出專屬存摺卡片！
+        if any(c.isdigit() for c in text):
+            num = int("".join([c for c in text if c.isdigit()]))
+            user_profiles[user_id]["stock"] = num
+            flex = get_profile_summary_flex(user_id)
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[FlexMessage(alt_text="🎉 建檔完成！您的專屬擊癌利存摺", contents=FlexContainer.from_dict(flex))]
+            ))
         else:
             flex = get_onboarding_step1_flex()
             line_bot_api.reply_message(ReplyMessageRequest(
