@@ -85,6 +85,10 @@ def save_data(profiles, counter):
 user_profiles, patient_counter = load_data()
 
 def get_or_create_user(user_id):
+    """
+    確保每個 LINE 使用者永遠綁定唯一的專屬病友代號 (KSQ-XXXX)。
+    不論跨院就醫或資料更新，ID 永遠鎖定不跳號，存摺永遠只有一本。
+    """
     global patient_counter
     if user_id not in user_profiles:
         patient_counter += 1
@@ -143,10 +147,11 @@ def get_unregistered_prompt_flex(feature_name="功能"):
         }
     }
 
-# ----------------- 已建檔病友重複建檔防呆卡片 -----------------
+# ----------------- 已建檔病友防呆卡片（ID 鎖定與跨院提醒） -----------------
 def get_already_registered_flex(user):
     dose = user.get("dose", 2)
     stock = user.get("stock", 0)
+    code = user.get("code", "KSQ-0001")
     days = stock // dose if dose > 0 else 999
     return {
         "type": "bubble",
@@ -154,7 +159,7 @@ def get_already_registered_flex(user):
             "type": "box", "layout": "vertical", "backgroundColor": "#B45309",
             "contents": [
                 {"type": "text", "text": "⚠️ 您已完成過開戶建檔！", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                {"type": "text", "text": f"專屬代號：{user.get('code', 'KSQ-0001')} ｜ 避免重複開戶", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": f"專屬代號：{code} ｜ 唯一綁定防呆", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
@@ -164,15 +169,15 @@ def get_already_registered_flex(user):
                 {
                     "type": "box", "layout": "vertical", "backgroundColor": "#F8FAFC", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
                     "contents": [
-                        {"type": "text", "text": f"• 就診醫院：{user.get('hosp', '三軍總醫院')}", "size": "xs", "color": "#0F172A", "weight": "bold"},
+                        {"type": "text", "text": f"• 就診醫院：{user.get('hosp', '三軍總醫院')}（{user.get('pharmacy', '躍獅寶湖藥局')}）", "size": "xs", "color": "#0F172A", "weight": "bold"},
                         {"type": "text", "text": f"• 治療類型：{user.get('cancer', '早期乳癌')}", "size": "xs", "color": "#0F172A"},
                         {"type": "text", "text": f"• 目前劑量：每日 {dose} 顆 ({dose*200}mg)", "size": "xs", "color": "#0F172A"},
                         {"type": "text", "text": f"• 手邊存藥：{stock} 顆（預估服 {days} 天）", "size": "xs", "color": "#991B1B", "weight": "bold"}
                     ]
                 },
                 {"type": "separator", "margin": "xs"},
-                {"type": "text", "text": "💡【常見需求導引】：", "size": "xs", "weight": "bold", "color": "#1E293B"},
-                {"type": "text", "text": "👉 若新買了藥：請點【購藥登記】增加顆數\n👉 若醫師改劑量：請至選單點【劑量調整】\n👉 若需重設資料：請點【重設全部資料】", "size": "xxs", "color": "#64748B", "wrap": True}
+                {"type": "text", "text": "💡【跨院就醫與存藥防呆】：", "size": "xs", "weight": "bold", "color": "#1E293B"},
+                {"type": "text", "text": "您的病友代號為唯一鎖定綁定。若至其他指定責任醫院就醫或轉院，藥物存量會自動鎖定延續，無需重複開戶！", "size": "xxs", "color": "#64748B", "wrap": True}
             ]
         },
         "footer": {
@@ -183,13 +188,128 @@ def get_already_registered_flex(user):
                     "action": {"type": "postback", "label": "🧾 購藥登記（增加新買顆數）", "data": "action=receipt"}
                 },
                 {
+                    "type": "button", "style": "primary", "color": "#0D9488", "height": "sm",
+                    "action": {"type": "postback", "label": "🏥 變更就診醫院（跨院移轉）", "data": "action=switch_hosp"}
+                },
+                {
                     "type": "button", "style": "primary", "color": "#1E293B", "height": "sm",
                     "action": {"type": "postback", "label": "📕 查看我的病友存摺", "data": "action=passbook"}
                 },
                 {
                     "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "postback", "label": "🔄 重設全部資料（重新建檔）", "data": "action=force_onboard"}
+                    "action": {"type": "postback", "label": "⚠️ 重新完整開戶（清除重設）", "data": "action=force_onboard"}
                 }
+            ]
+        }
+    }
+
+# ----------------- 變更就診醫院選擇卡片 -----------------
+def get_switch_hospital_flex(user):
+    stock = user.get("stock", 0)
+    hosp = user.get("hosp", "三軍總醫院")
+    code = user.get("code", "KSQ-0001")
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#0D9488",
+            "contents": [
+                {"type": "text", "text": "🏥 變更責任醫院（跨院移轉）", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": f"病友代號：{code} ｜ 存藥鎖定延續", "color": "#CCFBF1", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": f"您目前在【{hosp}】就診，手邊存藥【{stock} 顆】將完整鎖定保留！請點選您欲變更的新就診醫院：", "size": "xs", "color": "#334155", "wrap": True},
+                {"type": "separator", "margin": "sm"},
+                {"type": "button", "style": "primary", "color": "#991B1B", "height": "sm", "action": {"type": "postback", "label": "🏥 三軍總醫院（寶湖藥局）", "data": "confirm_switch_hosp=三總", "displayText": "三軍總醫院"}},
+                {"type": "button", "style": "primary", "color": "#B91C1C", "height": "sm", "action": {"type": "postback", "label": "🏥 基隆長庚醫院（宏仁藥局）", "data": "confirm_switch_hosp=基隆長庚", "displayText": "基隆長庚醫院"}},
+                {"type": "button", "style": "primary", "color": "#DC2626", "height": "sm", "action": {"type": "postback", "label": "🏥 汐止國泰醫院（寶湖支援）", "data": "confirm_switch_hosp=汐止國泰", "displayText": "汐止國泰醫院"}}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical",
+            "contents": [
+                {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "❌ 取消變更，留在原醫院", "data": "cancel_purchase", "displayText": "取消變更"}}
+            ]
+        }
+    }
+
+# ----------------- 轉院與藥局變更確認卡片 -----------------
+def get_transfer_confirm_flex(user, new_hosp_key, new_hosp_info):
+    stock = user.get("stock", 0)
+    code = user.get("code", "KSQ-0001")
+    old_hosp = user.get("hosp", "三軍總醫院")
+    old_ph = user.get("pharmacy", "躍獅寶湖藥局")
+    new_hosp = new_hosp_info["name"]
+    new_ph = new_hosp_info["pharmacy"]
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#0D9488",
+            "contents": [
+                {"type": "text", "text": "🔄 跨院轉移與藥局切換確認", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": f"代號：{code} ｜ 藥物存量鎖定", "color": "#CCFBF1", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#F0FDFA", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": f"• 原主治醫院：{old_hosp}（{old_ph}）", "size": "xxs", "color": "#64748B"},
+                        {"type": "text", "text": f"• 新主治醫院：{new_hosp}（{new_ph}）", "size": "xs", "weight": "bold", "color": "#0F766E"},
+                        {"type": "text", "text": f"• 目前存藥庫存：{stock} 顆（完整保留延續）", "size": "xs", "weight": "bold", "color": "#B91C1C"}
+                    ]
+                },
+                {"type": "text", "text": "跨院移轉後，您的代號與存藥完全保留，領藥藥局將自動切換為新醫院指定藥局：", "size": "xxs", "color": "#64748B", "wrap": True}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "button", "style": "primary", "color": "#0D9488", "height": "sm", "action": {"type": "postback", "label": f"✅ 保留 {stock} 顆存藥並轉院", "data": f"apply_switch={new_hosp_key}&keep=1", "displayText": "確認轉院並保留存藥"}},
+                {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "📝 轉院並重新盤點顆數", "data": f"apply_switch={new_hosp_key}&keep=0", "displayText": "轉院並重盤顆數"}},
+                {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "❌ 取消變更", "data": "cancel_purchase", "displayText": "取消變更"}}
+            ]
+        }
+    }
+
+# ----------------- 重新開戶二次防呆警示卡片 -----------------
+def get_force_onboard_confirm_flex(user):
+    stock = user.get("stock", 0)
+    code = user.get("code", "KSQ-0001")
+    hosp = user.get("hosp", "三軍總醫院")
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
+            "contents": [
+                {"type": "text", "text": "⚠️ 確定要重新開戶建檔嗎？", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": f"專屬代號：{code} ｜ 資料重設提醒", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "系統偵測到您目前已有完整建檔紀錄：", "size": "xs", "color": "#64748B"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#FEF2F2", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": f"• 就診醫院：{hosp}", "size": "xs", "color": "#0F172A"},
+                        {"type": "text", "text": f"• 手邊存藥：{stock} 顆", "size": "xs", "weight": "bold", "color": "#991B1B"}
+                    ]
+                },
+                {"type": "text", "text": "💡 若您只是跨院就診或換了醫院，請點選【變更就診醫院】，存藥顆數會自動鎖定保留！", "size": "xxs", "color": "#334155", "wrap": True}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "button", "style": "primary", "color": "#0D9488", "height": "sm", "action": {"type": "postback", "label": "🏥 僅變更就診醫院（保留存藥）", "data": "action=switch_hosp", "displayText": "變更就診醫院"}},
+                {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "🔄 堅持重新完整建檔", "data": "do_force_onboard", "displayText": "確定重新建檔"}},
+                {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "❌ 取消，返回我的存摺", "data": "action=passbook", "displayText": "返回存摺"}}
             ]
         }
     }
@@ -619,7 +739,7 @@ def handle_postback(event):
     user = get_or_create_user(user_id)
 
     try:
-        # 六宮格按鍵 6: 病友建檔 (防呆：若已建檔，提示不可重複並提供指引與覆蓋按鈕)
+        # 六宮格按鍵 6: 病友建檔 (防呆：若已建檔，提示不可重複並提供指引、換醫院與覆蓋按鈕)
         if data == "action=onboard":
             if user.get("is_registered", False):
                 already_flex = get_already_registered_flex(user)
@@ -631,8 +751,79 @@ def handle_postback(event):
             flex = get_onboarding_step1_flex()
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 新病友開戶建檔", contents=flex))
 
-        # 強制重新建檔
+        # 變更就診醫院（跨院移轉藥局，防 Doctor shopping）
+        elif data == "action=switch_hosp":
+            if not user.get("is_registered", False):
+                flex = get_unregistered_prompt_flex("變更醫院")
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
+                return
+            switch_flex = get_switch_hospital_flex(user)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🏥 變更責任醫院", contents=switch_flex))
+
+        # 點選新醫院，觸發轉院防呆確認
+        elif data.startswith("confirm_switch_hosp="):
+            new_hosp_key = data.replace("confirm_switch_hosp=", "").strip()
+            new_hosp_info = HOSPITALS.get(new_hosp_key, HOSPITALS["三總"])
+            
+            if user.get("hosp") == new_hosp_info["name"]:
+                line_bot_api.reply_message(reply_token, TextSendMessage(
+                    text=f"🏥 您目前已在【{user['hosp']}】就診，指定藥局為【{user.get('pharmacy', '指定藥局')}】，資料完全一致，無需重複變更！"
+                ))
+                return
+
+            transfer_flex = get_transfer_confirm_flex(user, new_hosp_key, new_hosp_info)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🔄 跨院轉移確認", contents=transfer_flex))
+
+        # 確認執行轉院 (keep=1 保留存藥, keep=0 重新盤點)
+        elif data.startswith("apply_switch="):
+            query_str = data.replace("apply_switch=", "hosp=")
+            params = dict(urllib.parse.parse_qsl(query_str))
+            hosp_key = params.get("hosp", "三總")
+            keep = params.get("keep", "1")
+            new_hosp_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
+
+            user["hosp"] = new_hosp_info["name"]
+            user["pharmacy"] = new_hosp_info["pharmacy"]
+
+            if keep == "1":
+                user["state"] = None
+                save_data(user_profiles, patient_counter)
+                receipt_msg = (
+                    f"🏥【跨院移轉完成】\n"
+                    f"主治醫院已更新為：{new_hosp_info['name']}\n"
+                    f"指定領藥藥局：{new_hosp_info['pharmacy']}\n\n"
+                    f"💡 您的專屬病友代號【{user['code']}】與手邊存藥【{user['stock']} 顆】已完整保留鎖定，跨院延續不遺失！"
+                )
+                flex = get_profile_summary_flex(user_id)
+                line_bot_api.reply_message(reply_token, [
+                    TextSendMessage(text=receipt_msg),
+                    FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
+                ])
+            else:
+                user["state"] = "awaiting_initial_stock"
+                save_data(user_profiles, patient_counter)
+                hint = (
+                    f"🏥 主治醫院已更新為：{new_hosp_info['name']}\n"
+                    f"指定領藥藥局：{new_hosp_info['pharmacy']}。\n\n"
+                    f"👉 請直接在下方聊天室輸入您目前在新醫院手邊剩餘的確切存藥顆數（例如 53）："
+                )
+                line_bot_api.reply_message(reply_token, TextSendMessage(text=hint))
+
+        # 要求重新建檔（若已建檔，跳出二次防呆警示，保護現有存藥）
         elif data == "action=force_onboard":
+            if user.get("is_registered", False):
+                confirm_flex = get_force_onboard_confirm_flex(user)
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 確定重新開戶建檔？", contents=confirm_flex))
+                return
+
+            user["is_registered"] = False
+            user["state"] = "onboarding_step_1"
+            save_data(user_profiles, patient_counter)
+            flex = get_onboarding_step1_flex()
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 重新開戶建檔", contents=flex))
+
+        # 病友堅持重新開戶建檔 (保留專屬代號 code 絕對鎖定！)
+        elif data == "do_force_onboard":
             user["is_registered"] = False
             user["state"] = "onboarding_step_1"
             save_data(user_profiles, patient_counter)
@@ -643,6 +834,13 @@ def handle_postback(event):
         elif data.startswith("set_hosp="):
             hosp_key = data.replace("set_hosp=", "").strip()
             hosp_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
+
+            # 防呆：若病友其實已建過檔卻觸發 set_hosp，導引至轉院確認
+            if user.get("is_registered", False):
+                transfer_flex = get_transfer_confirm_flex(user, hosp_key, hosp_info)
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🔄 跨院轉移確認", contents=transfer_flex))
+                return
+
             user["hosp"] = hosp_info["name"]
             user["pharmacy"] = hosp_info["pharmacy"]
             user["state"] = "onboarding_step_2"

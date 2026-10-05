@@ -692,6 +692,16 @@
     }
 
     function openOnboardingModal() {
+      document.getElementById('ob_stock_input').value = state.stockPills;
+      document.getElementById('ob_boxes_input').value = state.paidBoxes;
+      
+      let hospRadio = document.querySelector(`input[name="ob_hosp"][value="${state.hospitalKey}"]`);
+      if (hospRadio) hospRadio.checked = true;
+      let typeRadio = document.querySelector(`input[name="ob_type"][value="${state.patientType}"]`);
+      if (typeRadio) typeRadio.checked = true;
+      let doseRadio = document.querySelector(`input[name="ob_dose"][value="${state.currentDose}"]`);
+      if (doseRadio) doseRadio.checked = true;
+
       document.getElementById('onboarding_modal').classList.remove('hidden');
     }
     function closeOnboardingModal() {
@@ -719,12 +729,20 @@
 
       closeOnboardingModal();
       recalculate();
+
+      // 同步更新瀏覽器 URL 參數，鎖定病友代號與保留存藥
+      let hospInfo = hospitalConfig[state.hospitalKey];
+      let typeLabel = state.patientType === '1' ? '早期乳癌' : '轉移性乳癌';
+      let code = state.patientCode || 'KSQ-0001';
+      let newUrl = `?code=${code}&hosp=${encodeURIComponent(hospInfo.name)}&cancer=${encodeURIComponent(typeLabel)}&dose=${state.currentDose}&stock=${state.stockPills}&boxes=${state.paidBoxes}`;
+      window.history.replaceState(null, '', newUrl);
     }
 
     // 初始化渲染並支援讀取 URL 參數
     function initFromUrl() {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code') || 'KSQ-0001';
+      state.patientCode = code;
       const hosp = params.get('hosp');
       const cancer = params.get('cancer');
       const dose = params.get('dose');
