@@ -52,6 +52,22 @@ HOSPITALS = {
 }
 
 user_profiles = {}
+patient_counter = 0
+
+def get_or_create_user(user_id):
+    global patient_counter
+    if user_id not in user_profiles:
+        patient_counter += 1
+        code_str = f"KSQ-{patient_counter:04d}"  # 例如第 1 位是 KSQ-0001，第 2 位是 KSQ-0002
+        user_profiles[user_id] = {
+            "hosp": "三軍總醫院",
+            "cancer": "早期乳癌",
+            "dose": 2,
+            "stock": 21,
+            "code": code_str,
+            "pharmacy": "躍獅寶湖藥局"
+        }
+    return user_profiles[user_id]
 
 def get_onboarding_step1_flex():
     return {
@@ -271,10 +287,7 @@ def handle_postback(event):
     user_id = event.source.user_id
     reply_token = event.reply_token
 
-    if user_id not in user_profiles:
-        user_profiles[user_id] = {
-            "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
-        }
+    user = get_or_create_user(user_id)
 
     # 六宮格按鍵 6: 病友建檔
     if data == "action=onboard":
@@ -409,10 +422,7 @@ def handle_text_message(event):
     user_id = event.source.user_id
     reply_token = event.reply_token
 
-    if user_id not in user_profiles:
-        user_profiles[user_id] = {
-            "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
-        }
+    user = get_or_create_user(user_id)
 
     # 只要使用者輸入純數字，立即當作【手邊存藥顆數】並秒產出專屬存摺卡片！
     if any(c.isdigit() for c in text):
