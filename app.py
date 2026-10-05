@@ -206,6 +206,72 @@ def get_onboarding_step4_flex(dose_str):
         }
     }
 
+def get_consent_form_flex():
+    """病患同意書範例與填寫教學卡片"""
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
+            "contents": [
+                {"type": "text", "text": "📋 擊癌利病患同意書範例與教學", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": "贈藥申請審核必備文件 ｜ 填寫注意事項", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#FEF2F2",
+                    "cornerRadius": "md", "paddingAll": "sm", "borderWidth": "light", "borderColor": "#FECACA",
+                    "contents": [
+                        {"type": "text", "text": "📝 同意書填寫三大量點（缺一不可）：", "size": "xs", "weight": "bold", "color": "#991B1B"},
+                        {"type": "text", "text": "1. 🟨【醫師黃框區】：醫師親筆簽名 ＋ 門診日期（務必手寫年月日）", "size": "xxs", "color": "#334155", "margin": "xs", "wrap": True},
+                        {"type": "text", "text": "2. 🟥【病患紅框區】：正楷填寫病友姓名、身分證字號、聯絡手機", "size": "xxs", "color": "#334155", "margin": "xs", "wrap": True},
+                        {"type": "text", "text": "3. 🧾【黏貼收據影本】：翻至指定頁面，平整浮貼滿 63 顆之自費收據影本", "size": "xxs", "color": "#334155", "margin": "xs", "wrap": True}
+                    ]
+                },
+                {
+                    "type": "box", "layout": "vertical", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "📄 兩聯單分開處理：", "size": "xs", "weight": "bold", "color": "#0F172A"},
+                        {"type": "text", "text": "• 第一聯（白色）：寄回永欣生技顧問審核", "size": "xs", "color": "#475569"},
+                        {"type": "text", "text": "• 第二聯（粉紅色）：撕下由病友自行妥善留存備查", "size": "xs", "color": "#DC2626", "weight": "bold"}
+                    ]
+                },
+                {"type": "separator", "margin": "xs"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#F8FAFC",
+                    "cornerRadius": "md", "paddingAll": "sm",
+                    "contents": [
+                        {"type": "text", "text": "✉️ 寄件免貼郵票：", "size": "xs", "weight": "bold", "color": "#0F172A"},
+                        {"type": "text", "text": "封底已印妥回郵地址，撕開雙面膠對摺黏牢，直接投入郵筒即可寄達永欣生技！", "size": "xxs", "color": "#64748B", "wrap": True}
+                    ]
+                }
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "xs",
+            "contents": [
+                {
+                    "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
+                    "action": {
+                        "type": "uri",
+                        "label": "🌐 開啟存摺查看完整流程",
+                        "uri": "https://kisqali-care-bot.onrender.com/"
+                    }
+                },
+                {
+                    "type": "button", "style": "secondary", "height": "sm",
+                    "action": {
+                        "type": "uri",
+                        "label": "📞 致電永欣審核 (02-8780-3236)",
+                        "uri": "tel:0287803236"
+                    }
+                }
+            ]
+        }
+    }
+
 def get_profile_summary_flex(user_id):
     p = user_profiles.get(user_id, {
         "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-8821", "pharmacy": "躍獅寶湖藥局"
@@ -349,15 +415,15 @@ def handle_postback(event):
                     ]
                 },
                 "footer": {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "type": "box", "layout": "vertical", "spacing": "sm",
                     "contents": [
                         {
                             "type": "button", "style": "primary", "color": "#047857", "height": "sm",
-                            "action": {"type": "postback", "label": "📕 查看我的存摺", "data": "action=passbook"}
+                            "action": {"type": "postback", "label": "📕 查看我的病友存摺", "data": "action=passbook"}
                         },
                         {
                             "type": "button", "style": "secondary", "height": "sm",
-                            "action": {"type": "postback", "label": "🔄 確認重新建檔", "data": "action=force_onboard"}
+                            "action": {"type": "postback", "label": "🔄 我要重新開戶建檔", "data": "action=force_onboard"}
                         }
                     ]
                 }
@@ -500,13 +566,25 @@ def handle_postback(event):
                 ]
             },
             "footer": {
-                "type": "box", "layout": "horizontal",
+                "type": "box", "layout": "vertical", "spacing": "sm",
                 "contents": [
-                    {"type": "button", "style": "primary", "color": "#854D0E", "height": "sm", "action": {"type": "uri", "label": "📞 致電藥局", "uri": f"tel:{ph_info['phone'].replace('-', '')}"}}
+                    {
+                        "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
+                        "action": {"type": "postback", "label": "📄 查看病患同意書範例", "data": "action=consent"}
+                    },
+                    {
+                        "type": "button", "style": "secondary", "height": "sm",
+                        "action": {"type": "uri", "label": f"📞 致電藥局 ({ph_info['pharmacy'][:4]})", "uri": f"tel:{ph_info['phone'].replace('-', '')}"}
+                    }
                 ]
             }
         }
         line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📬 贈藥申請與領藥流程", contents=sop_flex))
+
+    # 查看病患同意書範例與教學
+    elif data == "action=consent":
+        consent_flex = get_consent_form_flex()
+        line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📄 擊癌利病患同意書範例與教學", contents=consent_flex))
 
     # 六宮格按鍵 2: 購藥登記
     elif data == "action=receipt":
