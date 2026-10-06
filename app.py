@@ -91,8 +91,14 @@ def get_or_create_user(user_id):
     """
     global patient_counter
     if user_id not in user_profiles:
+        # 若是第一位真實進入小管家的管理者/測試者，自動綁定為預設已建檔之 KSQ-0001
+        if "U7278e50c97fbaf8753c1cbf976903666" in user_profiles:
+            user_profiles[user_id] = user_profiles.pop("U7278e50c97fbaf8753c1cbf976903666")
+            save_data(user_profiles, patient_counter)
+            return user_profiles[user_id]
+
         patient_counter += 1
-        code_str = f"KSQ-{patient_counter:04d}"  # 第一位病友為 KSQ-0001
+        code_str = f"KSQ-{patient_counter:04d}"
         user_profiles[user_id] = {
             "hosp": "三軍總醫院",
             "cancer": "早期乳癌",
