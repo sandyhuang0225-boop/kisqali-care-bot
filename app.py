@@ -599,7 +599,7 @@ def get_consent_form_flex():
                     "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
                     "action": {
                         "type": "uri",
-                        "label": "🌐 開啟存摺查看完整流程",
+                        "label": "開啟存摺查看流程",
                         "uri": "https://kisqali-care-bot.onrender.com/"
                     }
                 },
@@ -698,13 +698,13 @@ def get_profile_summary_flex(user_id):
                     "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
                     "action": {
                         "type": "uri",
-                        "label": "📱 開啟完整存摺",
+                        "label": "開啟存摺",
                         "uri": encoded_url
                     }
                 },
                 {
                     "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "postback", "label": "⚙️ 重新建檔", "data": "action=onboard"}
+                    "action": {"type": "postback", "label": "重新建檔", "data": "action=onboard"}
                 }
             ]
         }
