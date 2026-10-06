@@ -84,6 +84,40 @@ def save_data(profiles, counter):
 
 user_profiles, patient_counter = load_data()
 
+def normalize_patient_code(raw_text):
+    """
+    智慧模糊辨識病友代號：
+    支援：0001, 1, 01, 001, ksq0001, KSQ0001, ksq-0001, KSQ-0001, ksq 0001, KSQ 1, #0001 等
+    一律精準正規化為標準 KSQ-XXXX
+    """
+    if not raw_text:
+        return None
+    raw = raw_text.strip().upper()
+    cleaned = raw.replace("-", "").replace(" ", "").replace("#", "").replace("NO.", "").replace("NO", "")
+    if cleaned.startswith("KSQ"):
+        digits_part = cleaned[3:]
+    else:
+        digits_part = cleaned
+    if digits_part.isdigit():
+        num = int(digits_part)
+        if num > 0:
+            return f"KSQ-{num:04d}"
+    return None
+
+def get_effective_user(user_id):
+    """
+    若使用者為家屬照護者身分，取得所綁定之病友真實資料與病友 ID。
+    回傳 (target_user_dict, effective_user_id, is_caregiver)
+    """
+    if not user_id:
+        return {}, None, False
+    user = get_or_create_user(user_id)
+    if user.get("role") == "caregiver" and user.get("bound_patient_id"):
+        patient_id = user["bound_patient_id"]
+        if patient_id in user_profiles:
+            return user_profiles[patient_id], patient_id, True
+    return user, user_id, False
+
 def get_or_create_user(user_id):
     """
     確保每個 LINE 使用者永遠綁定唯一的專屬病友代號 (KSQ-XXXX)。
@@ -107,10 +141,154 @@ def get_or_create_user(user_id):
             "code": code_str,
             "pharmacy": "躍獅寶湖藥局",
             "is_registered": False,
+            "role": "patient",
             "state": None
         }
         save_data(user_profiles, patient_counter)
     return user_profiles[user_id]
+
+# ----------------- 開戶與身分選擇入口卡片 -----------------
+def get_onboarding_entry_flex():
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#0F172A",
+            "contents": [
+                {"type": "text", "text": "✨ 擊癌利專屬存摺開戶與綁定", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": "請選擇您的身分開始使用", "color": "#94A3B8", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "請依您的身分點選下方按鈕：", "size": "xs", "color": "#64748B"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#FEF2F2", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "🌸【我是病友本人】（初次開戶）", "size": "xs", "weight": "bold", "color": "#991B1B"},
+                        {"type": "text", "text": "適合首次使用，建立您的專屬病友代號、鎖定就診醫院與個人存摺。", "size": "xxs", "color": "#64748B", "wrap": True}
+                    ]
+                },
+                {
+                    "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
+                    "action": {"type": "postback", "label": "🌸 我是病友本人（新開戶）", "data": "action=start_patient_onboard", "displayText": "我是病友本人"}
+                },
+                {"type": "separator"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#EEF2FF", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "👨‍👩‍👧【我是家屬／照護者】（代號綁定）", "size": "xs", "weight": "bold", "color": "#4338CA"},
+                        {"type": "text", "text": "適合協助家人追蹤存藥，只需輸入家人的病友代號即可同步存摺！", "size": "xxs", "color": "#64748B", "wrap": True}
+                    ]
+                },
+                {
+                    "type": "button", "style": "primary", "color": "#4F46E5", "height": "sm",
+                    "action": {"type": "postback", "label": "👨‍👩‍👧 我是家屬（綁定家人存摺）", "data": "action=caregiver_bind", "displayText": "我是家屬，協助綁定"}
+                }
+            ]
+        }
+    }
+
+# ----------------- 家屬輸入代號引導卡片 -----------------
+def get_caregiver_input_prompt_flex():
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#4338CA",
+            "contents": [
+                {"type": "text", "text": "👨‍👩‍👧 家屬／照護者存摺綁定", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": "【步驟 1/2】請輸入病友專屬代號", "color": "#E0E7FF", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "請直接在下方聊天室輸入病友的「專屬代號」：", "size": "xs", "weight": "bold", "color": "#1E293B"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#F8FAFC", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "💡【貼心防呆模糊支援】：", "size": "xs", "weight": "bold", "color": "#047857"},
+                        {"type": "text", "text": "• 打純數字：「0001」或「1」\n• 英文連打：「KSQ0001」或「ksq0001」\n• 標準格式：「KSQ-0001」或「ksq-0001」", "size": "xxs", "color": "#475569", "wrap": True},
+                        {"type": "text", "text": "👉 以上任何一種格式，系統都會自動識別為 KSQ-0001！", "size": "xxs", "color": "#D97706", "weight": "bold", "wrap": True}
+                    ]
+                }
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button", "style": "secondary", "height": "sm",
+                    "action": {"type": "postback", "label": "🌸 改為病友本人開戶", "data": "action=start_patient_onboard", "displayText": "改為病友本人開戶"}
+                }
+            ]
+        }
+    }
+
+# ----------------- 家屬驗證就診醫院卡片（隱私安全） -----------------
+def get_caregiver_verify_hosp_flex(target_code):
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#1E293B",
+            "contents": [
+                {"type": "text", "text": "🔐【步驟 2/2】責任醫院安全驗證", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": f"已辨識病友代號：{target_code}", "color": "#CBD5E1", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": f"系統已成功辨識代號【{target_code}】！", "size": "xs", "weight": "bold", "color": "#047857"},
+                {"type": "text", "text": "為保障病友用藥安全與個人隱私，請點選病友目前就診的責任醫院完成驗證：", "size": "xxs", "color": "#64748B", "wrap": True},
+                {"type": "button", "style": "primary", "color": "#991B1B", "height": "sm", "action": {"type": "postback", "label": "🏥 三軍總醫院（內湖/汀州/松山）", "data": f"verify_caregiver_hosp={target_code}|三總", "displayText": "三軍總醫院"}},
+                {"type": "button", "style": "primary", "color": "#B91C1C", "height": "sm", "action": {"type": "postback", "label": "🏥 基隆長庚醫院（基隆/情人湖）", "data": f"verify_caregiver_hosp={target_code}|基隆長庚", "displayText": "基隆長庚醫院"}},
+                {"type": "button", "style": "primary", "color": "#DC2626", "height": "sm", "action": {"type": "postback", "label": "🏥 汐止國泰醫院", "data": f"verify_caregiver_hosp={target_code}|汐止國泰", "displayText": "汐止國泰醫院"}}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button", "style": "secondary", "height": "sm",
+                    "action": {"type": "postback", "label": "🔄 代號按錯，重新輸入", "data": "action=caregiver_bind", "displayText": "重新輸入代號"}
+                }
+            ]
+        }
+    }
+
+# ----------------- 查無代號提示卡片 -----------------
+def get_caregiver_not_found_flex(target_code):
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#B45309",
+            "contents": [
+                {"type": "text", "text": "⚠️ 查無此病友開戶紀錄", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                {"type": "text", "text": f"輸入代號：{target_code}", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": f"系統目前尚未查到代號【{target_code}】的開戶紀錄。", "size": "xs", "color": "#0F172A", "weight": "bold"},
+                {"type": "text", "text": "可能原因：\n1. 家人尚未在醫院或本管家完成首次建檔開戶。\n2. 代號數字有誤（請向家人確認）。", "size": "xxs", "color": "#64748B", "wrap": True}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button", "style": "primary", "color": "#4F46E5", "height": "sm",
+                    "action": {"type": "postback", "label": "🔄 重新輸入代號", "data": "action=caregiver_bind", "displayText": "重新輸入代號"}
+                },
+                {
+                    "type": "button", "style": "secondary", "height": "sm",
+                    "action": {"type": "postback", "label": "🌸 我是病友本人（建立新開戶）", "data": "action=start_patient_onboard", "displayText": "我是病友本人"}
+                }
+            ]
+        }
+    }
 
 # ----------------- 未建檔病友防呆導引卡片 -----------------
 def get_unregistered_prompt_flex(feature_name="功能"):
@@ -120,20 +298,20 @@ def get_unregistered_prompt_flex(feature_name="功能"):
             "type": "box", "layout": "vertical", "backgroundColor": "#991B1B",
             "contents": [
                 {"type": "text", "text": "⚠️ 尚未完成病友開戶建檔", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                {"type": "text", "text": f"使用【{feature_name}】前請先開戶", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": f"使用【{feature_name}】前請先開戶或綁定", "color": "#FEE2E2", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "sm",
             "contents": [
-                {"type": "text", "text": "親愛的病友您好：", "size": "sm", "weight": "bold", "color": "#0F172A"},
-                {"type": "text", "text": f"您目前尚未建立個人病友基本資料。為了能為您產生「專屬病友代號」、精準管理「{feature_name}」並試算用藥安全天數，請先完成初次開戶建檔（只需 30 秒）。", "size": "xs", "color": "#64748B", "wrap": True},
+                {"type": "text", "text": "親愛的病友與家屬您好：", "size": "sm", "weight": "bold", "color": "#0F172A"},
+                {"type": "text", "text": f"您目前尚未建立或綁定病友資料。請選擇您的身分以利管理「{feature_name}」與試算用藥安全天數：", "size": "xs", "color": "#64748B", "wrap": True},
                 {"type": "separator", "margin": "md"},
                 {
                     "type": "box", "layout": "vertical", "backgroundColor": "#FEF2F2", "cornerRadius": "md", "paddingAll": "sm",
                     "contents": [
-                        {"type": "text", "text": "📋 建檔四步驟（超快速）：", "size": "xs", "weight": "bold", "color": "#991B1B"},
-                        {"type": "text", "text": "1. 選擇責任醫院（三總/長庚/國泰）\n2. 選擇治療類型（早期/晚期）\n3. 選擇每日劑量（3顆/2顆/1顆）\n4. 輸入手邊目前存藥顆數", "size": "xxs", "color": "#475569", "margin": "xs"}
+                        {"type": "text", "text": "🌸 病友本人：首次開戶建檔（只需 30 秒）", "size": "xs", "weight": "bold", "color": "#991B1B"},
+                        {"type": "text", "text": "👨‍👩‍👧 家屬／照護者：輸入病友代號直接同步", "size": "xs", "weight": "bold", "color": "#4338CA", "margin": "xs"}
                     ]
                 }
             ]
@@ -143,22 +321,78 @@ def get_unregistered_prompt_flex(feature_name="功能"):
             "contents": [
                 {
                     "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
-                    "action": {"type": "postback", "label": "✨ 立即開始病友建檔", "data": "action=onboard"}
+                    "action": {"type": "postback", "label": "🌸 我是病友本人開戶", "data": "action=start_patient_onboard"}
+                },
+                {
+                    "type": "button", "style": "primary", "color": "#4338CA", "height": "sm",
+                    "action": {"type": "postback", "label": "👨‍👩‍👧 我是家屬協助綁定", "data": "action=caregiver_bind"}
                 },
                 {
                     "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "postback", "label": "📬 查看領藥與審核流程", "data": "action=sop"}
+                    "action": {"type": "postback", "label": "📬 查看領藥流程說明", "data": "action=sop"}
                 }
             ]
         }
     }
 
-# ----------------- 已建檔病友防呆卡片（ID 鎖定與跨院提醒） -----------------
-def get_already_registered_flex(user):
-    dose = user.get("dose", 2)
-    stock = user.get("stock", 0)
-    code = user.get("code", "KSQ-0001")
+# ----------------- 已建檔病友／家屬防呆卡片 -----------------
+def get_already_registered_flex(user, user_id=None):
+    eff_user, eff_user_id, is_caregiver = get_effective_user(user_id) if user_id else (user, None, user.get("role") == "caregiver")
+    dose = eff_user.get("dose", 2)
+    stock = eff_user.get("stock", 0)
+    code = eff_user.get("code", "KSQ-0001")
     days = stock // dose if dose > 0 else 999
+
+    if is_caregiver:
+        return {
+            "type": "bubble",
+            "header": {
+                "type": "box", "layout": "vertical", "backgroundColor": "#4338CA",
+                "contents": [
+                    {"type": "text", "text": "👨‍👩‍👧 您已綁定為照護家屬！", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                    {"type": "text", "text": f"病友代號：{code} ｜ 共同照護模式", "color": "#E0E7FF", "size": "xs", "margin": "xs"}
+                ]
+            },
+            "body": {
+                "type": "box", "layout": "vertical", "spacing": "sm",
+                "contents": [
+                    {"type": "text", "text": "您已成功與家人存摺連線同步，目前病友存摺狀態：", "size": "xs", "color": "#64748B"},
+                    {
+                        "type": "box", "layout": "vertical", "backgroundColor": "#F8FAFC", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                        "contents": [
+                            {"type": "text", "text": f"• 就診醫院：{eff_user.get('hosp', '三軍總醫院')}（{eff_user.get('pharmacy', '躍獅寶湖藥局')}）", "size": "xs", "color": "#0F172A", "weight": "bold"},
+                            {"type": "text", "text": f"• 治療類型：{eff_user.get('cancer', '早期乳癌')}", "size": "xs", "color": "#0F172A"},
+                            {"type": "text", "text": f"• 目前處方：每日 {dose} 顆 ({dose*200}mg)", "size": "xs", "color": "#0F172A"},
+                            {"type": "text", "text": f"• 手邊存藥：{stock} 顆（預估服 {days} 天）", "size": "xs", "color": "#991B1B" if days <= 14 else "#047857", "weight": "bold"}
+                        ]
+                    },
+                    {"type": "separator", "margin": "xs"},
+                    {"type": "text", "text": "💡 您可在下方協助登記購藥或查看最新存摺與門診速報。", "size": "xxs", "color": "#64748B", "wrap": True}
+                ]
+            },
+            "footer": {
+                "type": "box", "layout": "vertical", "spacing": "sm",
+                "contents": [
+                    {
+                        "type": "button", "style": "primary", "color": "#047857", "height": "sm",
+                        "action": {"type": "postback", "label": "🧾 代為購藥登記", "data": "action=receipt"}
+                    },
+                    {
+                        "type": "button", "style": "primary", "color": "#1E293B", "height": "sm",
+                        "action": {"type": "postback", "label": "📕 查看病友存摺", "data": "action=passbook"}
+                    },
+                    {
+                        "type": "button", "style": "secondary", "height": "sm",
+                        "action": {"type": "postback", "label": "🏥 門診速報", "data": "action=doctor"}
+                    },
+                    {
+                        "type": "button", "style": "secondary", "height": "sm",
+                        "action": {"type": "postback", "label": "🔄 解除家屬綁定", "data": "action=unbind_caregiver"}
+                    }
+                ]
+            }
+        }
+
     return {
         "type": "bubble",
         "header": {
@@ -616,7 +850,7 @@ def get_consent_form_flex():
     }
 
 # ----------------- 擊癌利專屬病友存摺（全收斂回 LINE，零跳轉） -----------------
-def get_profile_summary_flex(user_id):
+def get_profile_summary_flex(user_id, is_caregiver=False):
     p = user_profiles.get(user_id, {
         "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 53, "code": "KSQ-0001", "pharmacy": "躍獅寶湖藥局"
     })
@@ -634,6 +868,11 @@ def get_profile_summary_flex(user_id):
     rem_to_box = 63 - (stock % 63) if (stock % 63) != 0 else 0
     left_boxes = max(0, 6 - cur_box)
 
+    header_title = "📕 擊癌利存摺（家屬端）" if is_caregiver else "📕 擊癌利專屬存摺"
+    badge_color = "#4338CA" if is_caregiver else ("#047857" if not is_alert else "#92400E")
+    badge_label = "家屬共同照護" if is_caregiver else "買1送1"
+    sub_title = f"病友代號：{code} ｜ 家屬共同照護" if is_caregiver else f"病友代號：{code} ｜ 專屬綁定存摺"
+
     return {
         "type": "bubble",
         "header": {
@@ -643,18 +882,18 @@ def get_profile_summary_flex(user_id):
                 {
                     "type": "box", "layout": "horizontal", "alignItems": "center",
                     "contents": [
-                        {"type": "text", "text": "📕 擊癌利專屬存摺", "weight": "bold", "color": "#FFFFFF", "size": "md", "flex": 5},
+                        {"type": "text", "text": header_title, "weight": "bold", "color": "#FFFFFF", "size": "md", "flex": 5},
                         {
                             "type": "box", "layout": "vertical",
-                            "backgroundColor": "#047857" if not is_alert else "#92400E",
+                            "backgroundColor": badge_color,
                             "cornerRadius": "md", "paddingAll": "xs", "alignItems": "center", "flex": 2,
                             "contents": [
-                                {"type": "text", "text": "買1送1", "size": "xxs", "color": "#FFFFFF", "weight": "bold", "align": "center"}
+                                {"type": "text", "text": badge_label, "size": "xxs", "color": "#FFFFFF", "weight": "bold", "align": "center"}
                             ]
                         }
                     ]
                 },
-                {"type": "text", "text": f"病友代號：{code} ｜ 專屬綁定存摺", "color": "#E6FFFA" if not is_alert else "#FEF3C7", "size": "xs", "margin": "xs"}
+                {"type": "text", "text": sub_title, "color": "#E6FFFA" if not is_alert else "#FEF3C7", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
@@ -734,37 +973,50 @@ def get_profile_summary_flex(user_id):
 
 # ----------------- 專屬問候語（已建檔 vs 未建檔） -----------------
 def get_welcome_registered_messages(user, user_id):
-    code = user.get("code", "KSQ-0001")
-    hosp = user.get("hosp", "三軍總醫院")
-    stock = user.get("stock", 0)
-    dose = user.get("dose", 2)
+    eff_user, eff_user_id, is_caregiver = get_effective_user(user_id)
+    code = eff_user.get("code", "KSQ-0001")
+    hosp = eff_user.get("hosp", "三軍總醫院")
+    stock = eff_user.get("stock", 0)
+    dose = eff_user.get("dose", 2)
     days = stock // dose if dose > 0 else 999
     
-    greeting_text = (
-        f"🌸【{code}】病友您好！\n"
-        f"您已做過病友建檔。\n\n"
-        f"📋 目前存摺摘要：\n"
-        f"• 就診醫院：{hosp}\n"
-        f"• 每日劑量：{dose} 顆 ({dose*200}mg)\n"
-        f"• 手邊存藥：{stock} 顆（預估可服 {days} 天）\n\n"
-        f"💡 若有新購藥物請點選下方【購藥登記】；若需查詢完整補助與服藥進度請點選【我的存摺】！"
-    )
-    flex = get_profile_summary_flex(user_id)
+    if is_caregiver:
+        greeting_text = (
+            f"🌸【{code} 家屬照護端】您好！\n"
+            f"您已成功綁定為病友【{code}】的照護家屬。\n\n"
+            f"📋 病友存摺即時摘要：\n"
+            f"• 就診醫院：{hosp}\n"
+            f"• 每日處方：每日 {dose} 顆 ({dose*200}mg)\n"
+            f"• 手邊存藥：{stock} 顆（預估可服 {days} 天）\n\n"
+            f"💡 您可代為點選下方【購藥登記】更新庫存，或點選【吉立存摺】查看完整補助進度！"
+        )
+    else:
+        greeting_text = (
+            f"🌸【{code}】病友您好！\n"
+            f"您已做過病友建檔。\n\n"
+            f"📋 目前存摺摘要：\n"
+            f"• 就診醫院：{hosp}\n"
+            f"• 每日劑量：{dose} 顆 ({dose*200}mg)\n"
+            f"• 手邊存藥：{stock} 顆（預估可服 {days} 天）\n\n"
+            f"💡 若有新購藥物請點選下方【購藥登記】；若需查詢完整補助與服藥進度請點選【我的存摺】！"
+        )
+    flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
     return [
         TextSendMessage(text=greeting_text),
-        FlexSendMessage(alt_text=f"📕 {code} 您的擊癌利存摺", contents=flex)
+        FlexSendMessage(alt_text=f"📕 {code} 擊癌利存摺", contents=flex)
     ]
 
 def get_welcome_unregistered_messages():
     greeting_text = (
         "👋 您好！歡迎使用擊癌利病患照護小管家。\n\n"
-        "⚠️ 您目前【尚未做過病友建檔】！\n"
-        "請先至下方選單點選【✨ 病友建檔】建立基本資料，以利為您建立專屬病友代號、鎖定責任醫院，並啟動用藥安全管理！"
+        "⚠️ 您目前【尚未開戶或綁定病友資料】！\n"
+        "• 若您是病友本人：請點選【病友開戶】建立基本資料。\n"
+        "• 若您是家屬/照顧者：請點選【家屬綁定】輸入病友代號即可同步存摺！"
     )
     flex = get_unregistered_prompt_flex("開戶建檔")
     return [
         TextSendMessage(text=greeting_text),
-        FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex)
+        FlexSendMessage(alt_text="⚠️ 請先完成病友開戶或家屬綁定", contents=flex)
     ]
 
 @app.route("/", methods=["GET"])
@@ -804,27 +1056,126 @@ def handle_postback(event):
     reply_token = event.reply_token
 
     user = get_or_create_user(user_id)
+    eff_user, eff_user_id, is_caregiver = get_effective_user(user_id)
 
     try:
-        # 六宮格按鍵 6: 病友建檔 (防呆：若已建檔，提示不可重複並提供指引、換醫院與覆蓋按鈕)
+        # 六宮格按鍵 6: 病友建檔 (身分入口：病友開戶 vs 家屬綁定)
         if data == "action=onboard":
             if user.get("is_registered", False):
-                already_flex = get_already_registered_flex(user)
-                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 您已建檔過，請勿重複建檔", contents=already_flex))
+                already_flex = get_already_registered_flex(user, user_id=user_id)
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 您已建檔過", contents=already_flex))
                 return
 
+            entry_flex = get_onboarding_entry_flex()
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 擊癌利專屬存摺開戶與綁定", contents=entry_flex))
+
+        # 病友本人開戶
+        elif data == "action=start_patient_onboard":
             user["state"] = "onboarding_step_1"
             save_data(user_profiles, patient_counter)
             flex = get_onboarding_step1_flex()
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="✨ 新病友開戶建檔", contents=flex))
 
+        # 家屬／照護者綁定
+        elif data == "action=caregiver_bind":
+            user["state"] = "awaiting_caregiver_code"
+            save_data(user_profiles, patient_counter)
+            flex = get_caregiver_input_prompt_flex()
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="👨‍👩‍👧 請輸入病友專屬代號", contents=flex))
+
+        # 家屬驗證就診醫院
+        elif data.startswith("verify_caregiver_hosp="):
+            payload = data.replace("verify_caregiver_hosp=", "").strip()
+            parts = payload.split("|")
+            target_code = parts[0]
+            selected_hosp_key = parts[1]
+            
+            target_pid = None
+            target_prof = None
+            for pid, prof in user_profiles.items():
+                if prof.get("code") == target_code and prof.get("is_registered"):
+                    target_pid = pid
+                    target_prof = prof
+                    break
+
+            if not target_prof:
+                line_bot_api.reply_message(reply_token, TextSendMessage(text="⚠️ 找不到該病友資料，請重新嘗試！"))
+                return
+
+            expected_hosp = HOSPITALS.get(selected_hosp_key, {}).get("name", "")
+            if target_prof.get("hosp") == expected_hosp:
+                user["role"] = "caregiver"
+                user["is_registered"] = True
+                user["bound_patient_id"] = target_pid
+                user["bound_patient_code"] = target_code
+                user["code"] = target_code
+                user["hosp"] = target_prof.get("hosp")
+                user["pharmacy"] = target_prof.get("pharmacy")
+                user["state"] = None
+                save_data(user_profiles, patient_counter)
+
+                success_text = (
+                    f"🎉【家屬照護綁定成功！】\n"
+                    f"已成功驗證並綁定為病友【{target_code}】的照護家屬！\n\n"
+                    f"即日起，您可隨時透過本小管家協助追蹤存藥天數、登記購藥入庫，並在門診與領藥時提供協助！"
+                )
+                flex = get_profile_summary_flex(target_pid, is_caregiver=True)
+                line_bot_api.reply_message(reply_token, [
+                    TextSendMessage(text=success_text),
+                    FlexSendMessage(alt_text="🎉 家屬照護存摺已連線", contents=flex)
+                ])
+            else:
+                fail_flex = {
+                    "type": "bubble",
+                    "header": {
+                        "type": "box", "layout": "vertical", "backgroundColor": "#B45309",
+                        "contents": [
+                            {"type": "text", "text": "⚠️ 醫院身分驗證未通過", "weight": "bold", "color": "#FFFFFF", "size": "md"},
+                            {"type": "text", "text": f"代號：{target_code}", "color": "#FEF3C7", "size": "xs", "margin": "xs"}
+                        ]
+                    },
+                    "body": {
+                        "type": "box", "layout": "vertical", "spacing": "sm",
+                        "contents": [
+                            {"type": "text", "text": f"您選擇的責任醫院與【{target_code}】的實際開戶醫院不符。", "size": "xs", "color": "#0F172A", "wrap": True},
+                            {"type": "text", "text": "為保障病友用藥安全與個人隱私，請確認病友目前的責任醫院後重新點選：", "size": "xxs", "color": "#64748B", "wrap": True}
+                        ]
+                    },
+                    "footer": {
+                        "type": "box", "layout": "vertical", "spacing": "sm",
+                        "contents": [
+                            {"type": "button", "style": "primary", "color": "#B45309", "height": "sm", "action": {"type": "postback", "label": "🔄 重新選擇醫院", "data": f"reverify_hosp={target_code}"}},
+                            {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "❌ 重新輸入代號", "data": "action=caregiver_bind"}}
+                        ]
+                    }
+                }
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 醫院驗證未通過", contents=fail_flex))
+
+        # 重新選擇驗證醫院
+        elif data.startswith("reverify_hosp="):
+            target_code = data.replace("reverify_hosp=", "").strip()
+            flex = get_caregiver_verify_hosp_flex(target_code)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🔐 請確認病友就診醫院", contents=flex))
+
+        # 解除家屬綁定
+        elif data == "action=unbind_caregiver":
+            user["role"] = None
+            user["is_registered"] = False
+            user["bound_patient_id"] = None
+            user["bound_patient_code"] = None
+            user["state"] = None
+            save_data(user_profiles, patient_counter)
+            line_bot_api.reply_message(reply_token, TextSendMessage(
+                text="👌 已成功解除家屬照護綁定！\n若日後需要重新綁定或建立新檔案，請隨時點選下方選單【病友建檔】。"
+            ))
+
         # 變更就診醫院（跨院移轉藥局，防 Doctor shopping）
         elif data == "action=switch_hosp":
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 flex = get_unregistered_prompt_flex("變更醫院")
                 line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
                 return
-            switch_flex = get_switch_hospital_flex(user)
+            switch_flex = get_switch_hospital_flex(eff_user)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🏥 變更責任醫院", contents=switch_flex))
 
         # 點選新醫院，觸發轉院防呆確認
@@ -832,13 +1183,13 @@ def handle_postback(event):
             new_hosp_key = data.replace("confirm_switch_hosp=", "").strip()
             new_hosp_info = HOSPITALS.get(new_hosp_key, HOSPITALS["三總"])
             
-            if user.get("hosp") == new_hosp_info["name"]:
+            if eff_user.get("hosp") == new_hosp_info["name"]:
                 line_bot_api.reply_message(reply_token, TextSendMessage(
-                    text=f"🏥 您目前已在【{user['hosp']}】就診，指定藥局為【{user.get('pharmacy', '指定藥局')}】，資料完全一致，無需重複變更！"
+                    text=f"🏥 目前已在【{eff_user['hosp']}】就診，指定藥局為【{eff_user.get('pharmacy', '指定藥局')}】，資料完全一致，無需重複變更！"
                 ))
                 return
 
-            transfer_flex = get_transfer_confirm_flex(user, new_hosp_key, new_hosp_info)
+            transfer_flex = get_transfer_confirm_flex(eff_user, new_hosp_key, new_hosp_info)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🔄 跨院轉移確認", contents=transfer_flex))
 
         # 確認執行轉院 (keep=1 保留存藥, keep=0 重新盤點)
@@ -849,19 +1200,23 @@ def handle_postback(event):
             keep = params.get("keep", "1")
             new_hosp_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
 
-            user["hosp"] = new_hosp_info["name"]
-            user["pharmacy"] = new_hosp_info["pharmacy"]
+            eff_user["hosp"] = new_hosp_info["name"]
+            eff_user["pharmacy"] = new_hosp_info["pharmacy"]
+            if is_caregiver:
+                user["hosp"] = new_hosp_info["name"]
+                user["pharmacy"] = new_hosp_info["pharmacy"]
 
             if keep == "1":
                 user["state"] = None
                 save_data(user_profiles, patient_counter)
+                role_msg = "（家屬代辦）" if is_caregiver else ""
                 receipt_msg = (
-                    f"🏥【跨院移轉完成】\n"
+                    f"🏥【跨院移轉完成{role_msg}】\n"
                     f"主治醫院已更新為：{new_hosp_info['name']}\n"
                     f"指定領藥藥局：{new_hosp_info['pharmacy']}\n\n"
-                    f"💡 您的專屬病友代號【{user['code']}】與手邊存藥【{user['stock']} 顆】已完整保留鎖定，跨院延續不遺失！"
+                    f"💡 專屬病友代號【{eff_user['code']}】與手邊存藥【{eff_user['stock']} 顆】已完整保留鎖定，跨院延續不遺失！"
                 )
-                flex = get_profile_summary_flex(user_id)
+                flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
                 line_bot_api.reply_message(reply_token, [
                     TextSendMessage(text=receipt_msg),
                     FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
@@ -872,7 +1227,7 @@ def handle_postback(event):
                 hint = (
                     f"🏥 主治醫院已更新為：{new_hosp_info['name']}\n"
                     f"指定領藥藥局：{new_hosp_info['pharmacy']}。\n\n"
-                    f"👉 請直接在下方聊天室輸入您目前在新醫院手邊剩餘的確切存藥顆數（例如 53）："
+                    f"👉 請直接在下方聊天室輸入目前在新醫院手邊剩餘的確切存藥顆數（例如 53）："
                 )
                 line_bot_api.reply_message(reply_token, TextSendMessage(text=hint))
 
@@ -929,20 +1284,21 @@ def handle_postback(event):
         # 劑量選擇 (步驟 3 或日常調整劑量)
         elif data.startswith("set_dose="):
             dose_val = int(data.replace("set_dose=", "").strip())
-            user["dose"] = dose_val
+            eff_user["dose"] = dose_val
+            if is_caregiver:
+                user["dose"] = dose_val
 
-            if user.get("is_registered", False):
-                # 已建檔過，代表是在圖文選單按「調整劑量」
+            if eff_user.get("is_registered", False):
                 user["state"] = None
                 save_data(user_profiles, patient_counter)
-                flex = get_profile_summary_flex(user_id)
+                flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
                 dose_note = f"每日 {dose_val} 顆 ({dose_val*200}mg)" if dose_val > 0 else "暫停服藥"
+                role_note = "（家屬代為回報）" if is_caregiver else ""
                 line_bot_api.reply_message(reply_token, [
-                    TextSendMessage(text=f"✅ 劑量已更新為：{dose_note}\n系統已為您重新精準試算安全庫存！"),
+                    TextSendMessage(text=f"✅ 處方劑量已更新為：{dose_note}{role_note}\n系統已為您重新精準試算安全庫存！"),
                     FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
                 ])
             else:
-                # 尚未建檔，進入步驟 4 請病友輸入手邊存藥顆數
                 user["state"] = "awaiting_initial_stock"
                 save_data(user_profiles, patient_counter)
                 flex = get_onboarding_step4_flex(f"每日 {dose_val} 顆")
@@ -950,16 +1306,16 @@ def handle_postback(event):
 
         # 六宮格按鍵 1: 我的存摺
         elif data == "action=passbook":
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 flex = get_unregistered_prompt_flex("我的存摺")
                 line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
                 return
-            flex = get_profile_summary_flex(user_id)
+            flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📕 您的擊癌利存摺", contents=flex))
 
         # 六宮格按鍵 4: 劑量調整
         elif data == "action=dose":
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 flex = get_unregistered_prompt_flex("劑量調整")
                 line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
                 return
@@ -987,15 +1343,15 @@ def handle_postback(event):
 
         # 六宮格按鍵 3: 門診速報
         elif data == "action=doctor":
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 flex = get_unregistered_prompt_flex("門診速報")
                 line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
                 return
-            dose = user.get("dose", 2)
-            stock = user.get("stock", 0)
-            code = user.get("code", "KSQ-0001")
-            hosp = user.get("hosp", "三軍總醫院")
-            cancer = user.get("cancer", "早期乳癌")
+            dose = eff_user.get("dose", 2)
+            stock = eff_user.get("stock", 0)
+            code = eff_user.get("code", "KSQ-0001")
+            hosp = eff_user.get("hosp", "三軍總醫院")
+            cancer = eff_user.get("cancer", "早期乳癌")
             days = stock // dose if dose > 0 else 999
             doc_flex = {
                 "type": "bubble",
@@ -1003,7 +1359,7 @@ def handle_postback(event):
                     "type": "box", "layout": "vertical", "backgroundColor": "#1E293B",
                     "contents": [
                         {"type": "text", "text": "🏥 擊癌利門診速報卡", "weight": "bold", "color": "#FFFFFF", "size": "md"},
-                        {"type": "text", "text": "出示供主治醫師快速評估療程", "color": "#94A3B8", "size": "xs", "margin": "xs"}
+                        {"type": "text", "text": "出示供主治醫師快速評估療程" if not is_caregiver else "家屬代出示供主治醫師快速評估", "color": "#94A3B8", "size": "xs", "margin": "xs"}
                     ]
                 },
                 "body": {
@@ -1022,8 +1378,8 @@ def handle_postback(event):
 
         # 六宮格按鍵 5: 領藥流程
         elif data == "action=sop":
-            p = user_profiles.get(user_id, {"hosp": "三軍總醫院", "pharmacy": "躍獅寶湖藥局"})
-            hosp_key = "基隆長庚" if "長庚" in p.get("hosp", "") else ("汐止國泰" if "國泰" in p.get("hosp", "") else "三總")
+            hosp_name = eff_user.get("hosp", "三軍總醫院")
+            hosp_key = "基隆長庚" if "長庚" in hosp_name else ("汐止國泰" if "國泰" in hosp_name else "三總")
             ph_info = HOSPITALS.get(hosp_key, HOSPITALS["三總"])
             sop_flex = {
                 "type": "bubble",
@@ -1068,21 +1424,22 @@ def handle_postback(event):
 
         # 六宮格按鍵 2: 購藥登記
         elif data == "action=receipt":
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 flex = get_unregistered_prompt_flex("購藥登記")
                 line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
                 return
 
             today_str = get_taiwan_today()
-            last_date = user.get("last_purchase_date")
-            last_pills = user.get("last_purchase_pills", 0)
+            last_date = eff_user.get("last_purchase_date")
+            last_pills = eff_user.get("last_purchase_pills", 0)
 
             user["state"] = "awaiting_receipt_pills"
             save_data(user_profiles, patient_counter)
 
-            hint = f"🧾【購藥收據登記】\n您目前存摺庫存為：{user.get('stock', 0)} 顆。\n請直接在聊天室輸入本次購買顆數（例如打「21」或「42」），系統將自動為您累加入庫！"
+            role_prefix = "（家屬代辦）" if is_caregiver else ""
+            hint = f"🧾【購藥收據登記{role_prefix}】\n病友【{eff_user.get('code')}】目前存摺庫存為：{eff_user.get('stock', 0)} 顆。\n請直接在聊天室輸入本次購買顆數（例如打「21」或「42」），系統將自動為您累加入庫並同步更新！"
             if last_date == today_str and last_pills > 0:
-                hint += f"\n\n💡 提示：您今天稍早已有一筆登記 {last_pills} 顆的紀錄。"
+                hint += f"\n\n💡 提示：今日稍早已有一筆登記 {last_pills} 顆的紀錄。"
             line_bot_api.reply_message(reply_token, TextSendMessage(text=hint))
 
         # 手邊存藥庫存校正 (直接覆蓋更新總庫存)
@@ -1091,15 +1448,16 @@ def handle_postback(event):
             today_str = get_taiwan_today()
             now_time_str = get_taiwan_now_str()
 
-            user["stock"] = num
-            user["last_purchase_date"] = today_str
-            user["last_purchase_time"] = now_time_str
-            user["last_purchase_pills"] = num
+            eff_user["stock"] = num
+            eff_user["last_purchase_date"] = today_str
+            eff_user["last_purchase_time"] = now_time_str
+            eff_user["last_purchase_pills"] = num
             user["state"] = None
             save_data(user_profiles, patient_counter)
 
-            receipt_msg = f"🔄【手邊存藥庫存校正完成】\n已將您的存摺手邊庫存校正為：{num} 顆！\n系統已為您重新試算安全服藥天數。"
-            flex = get_profile_summary_flex(user_id)
+            role_msg = "（家屬代為校正）" if is_caregiver else ""
+            receipt_msg = f"🔄【手邊存藥庫存校正完成{role_msg}】\n已將病友【{eff_user.get('code')}】存摺手邊庫存校正為：{num} 顆！\n系統已為您重新試算安全服藥天數。"
+            flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
             line_bot_api.reply_message(reply_token, [
                 TextSendMessage(text=receipt_msg),
                 FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
@@ -1111,15 +1469,16 @@ def handle_postback(event):
             today_str = get_taiwan_today()
             now_time_str = get_taiwan_now_str()
 
-            user["stock"] = user.get("stock", 0) + num
-            user["last_purchase_date"] = today_str
-            user["last_purchase_time"] = now_time_str
-            user["last_purchase_pills"] = num
+            eff_user["stock"] = eff_user.get("stock", 0) + num
+            eff_user["last_purchase_date"] = today_str
+            eff_user["last_purchase_time"] = now_time_str
+            eff_user["last_purchase_pills"] = num
             user["state"] = None
             save_data(user_profiles, patient_counter)
 
-            receipt_msg = f"✅【購藥加累登記成功】\n已為您額外入庫 {num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
-            flex = get_profile_summary_flex(user_id)
+            role_msg = "（家屬代辦）" if is_caregiver else ""
+            receipt_msg = f"✅【購藥加累登記成功{role_msg}】\n已為病友【{eff_user.get('code')}】額外入庫 {num} 顆！\n目前手邊總存藥為：{eff_user['stock']} 顆。"
+            flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
             line_bot_api.reply_message(reply_token, [
                 TextSendMessage(text=receipt_msg),
                 FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
@@ -1128,19 +1487,20 @@ def handle_postback(event):
         # 更正今日購藥登記 (更正今日購藥顆數)
         elif data.startswith("overwrite_purchase="):
             new_num = int(data.replace("overwrite_purchase=", "").strip())
-            old_num = user.get("last_purchase_pills", 0)
+            old_num = eff_user.get("last_purchase_pills", 0)
             today_str = get_taiwan_today()
             now_time_str = get_taiwan_now_str()
 
-            user["stock"] = max(0, user.get("stock", 0) - old_num + new_num)
-            user["last_purchase_date"] = today_str
-            user["last_purchase_time"] = now_time_str
-            user["last_purchase_pills"] = new_num
+            eff_user["stock"] = max(0, eff_user.get("stock", 0) - old_num + new_num)
+            eff_user["last_purchase_date"] = today_str
+            eff_user["last_purchase_time"] = now_time_str
+            eff_user["last_purchase_pills"] = new_num
             user["state"] = None
             save_data(user_profiles, patient_counter)
 
-            receipt_msg = f"🔄【更正今日購藥顆數】\n已將今日登記由 {old_num} 顆更正為 {new_num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
-            flex = get_profile_summary_flex(user_id)
+            role_msg = "（家屬代辦）" if is_caregiver else ""
+            receipt_msg = f"🔄【更正今日購藥顆數{role_msg}】\n已將今日登記由 {old_num} 顆更正為 {new_num} 顆！\n目前手邊總存藥為：{eff_user['stock']} 顆。"
+            flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
             line_bot_api.reply_message(reply_token, [
                 TextSendMessage(text=receipt_msg),
                 FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
@@ -1150,7 +1510,7 @@ def handle_postback(event):
         elif data == "cancel_purchase":
             user["state"] = None
             save_data(user_profiles, patient_counter)
-            flex = get_profile_summary_flex(user_id)
+            flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
             line_bot_api.reply_message(reply_token, [
                 TextSendMessage(text="👌 已保留原存摺庫存紀錄，未進行變更！"),
                 FlexSendMessage(alt_text="📕 您的擊癌利存摺", contents=flex)
@@ -1171,16 +1531,46 @@ def handle_text_message(event):
     reply_token = event.reply_token
 
     user = get_or_create_user(user_id)
+    eff_user, eff_user_id, is_caregiver = get_effective_user(user_id)
     today_str = get_taiwan_today()
     now_time_str = get_taiwan_now_str()
 
     try:
+        # 情況 A：家屬正在綁定輸入病友代號 (state == awaiting_caregiver_code)
+        if user.get("state") == "awaiting_caregiver_code":
+            norm_code = normalize_patient_code(text)
+            if not norm_code:
+                line_bot_api.reply_message(reply_token, [
+                    TextSendMessage(text="⚠️ 代號格式無法識別！\n請直接輸入數字代號（例如「0001」或「KSQ-0001」）唷！"),
+                    FlexSendMessage(alt_text="👨‍👩‍👧 請輸入病友專屬代號", contents=get_caregiver_input_prompt_flex())
+                ])
+                return
+
+            # 搜尋是否有此病友開戶紀錄
+            target_pid = None
+            target_prof = None
+            for pid, prof in user_profiles.items():
+                if prof.get("code") == norm_code and prof.get("is_registered"):
+                    target_pid = pid
+                    target_prof = prof
+                    break
+
+            if not target_prof:
+                flex = get_caregiver_not_found_flex(norm_code)
+                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 查無此病友代號", contents=flex))
+                return
+
+            # 查到病友，進入責任醫院隱私安全驗證
+            flex = get_caregiver_verify_hosp_flex(norm_code)
+            line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="🔐 請確認病友就診醫院", contents=flex))
+            return
+
         # 使用者輸入純數字
         if any(c.isdigit() for c in text):
             num = int("".join([c for c in text if c.isdigit()]))
 
             # 情況 1：尚未建檔
-            if not user.get("is_registered", False):
+            if not eff_user.get("is_registered", False):
                 if user.get("state") == "awaiting_initial_stock":
                     # 正確完成步驟 4，輸入初始顆數
                     user["stock"] = num
@@ -1196,15 +1586,15 @@ def handle_text_message(event):
                 else:
                     # 使用者未走完步驟 1~3 就直接打數字，引導建檔
                     flex = get_unregistered_prompt_flex("開戶建檔")
-                    line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
+                    line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶或家屬綁定", contents=flex))
                 return
 
-            # 情況 2：已建檔病友輸入數字
+            # 情況 2：已建檔（病友本人或家屬）輸入數字
             # 若使用者先前點選過「購藥登記」（state 為 awaiting_receipt_pills）
             if user.get("state") == "awaiting_receipt_pills":
-                last_date = user.get("last_purchase_date")
-                last_time = user.get("last_purchase_time", today_str)
-                last_pills = user.get("last_purchase_pills", 0)
+                last_date = eff_user.get("last_purchase_date")
+                last_time = eff_user.get("last_purchase_time", today_str)
+                last_pills = eff_user.get("last_purchase_pills", 0)
 
                 # 今日已登記過 ➔ 觸發防呆提醒卡片
                 if last_date == today_str and last_pills > 0:
@@ -1213,15 +1603,16 @@ def handle_text_message(event):
                     return
 
                 # 今日第一次登記購藥，直接入庫
-                user["stock"] = user.get("stock", 0) + num
-                user["last_purchase_date"] = today_str
-                user["last_purchase_time"] = now_time_str
-                user["last_purchase_pills"] = num
+                eff_user["stock"] = eff_user.get("stock", 0) + num
+                eff_user["last_purchase_date"] = today_str
+                eff_user["last_purchase_time"] = now_time_str
+                eff_user["last_purchase_pills"] = num
                 user["state"] = None
                 save_data(user_profiles, patient_counter)
 
-                receipt_msg = f"✅【購藥登記成功】\n登記日期：{today_str}\n已為您入庫：{num} 顆！\n目前手邊總存藥為：{user['stock']} 顆。"
-                flex = get_profile_summary_flex(user_id)
+                role_str = "（家屬代辦）" if is_caregiver else ""
+                receipt_msg = f"✅【購藥登記成功{role_str}】\n登記日期：{today_str}\n已為病友【{eff_user.get('code')}】入庫：{num} 顆！\n目前手邊總存藥為：{eff_user['stock']} 顆。"
+                flex = get_profile_summary_flex(eff_user_id, is_caregiver=is_caregiver)
                 line_bot_api.reply_message(reply_token, [
                     TextSendMessage(text=receipt_msg),
                     FlexSendMessage(alt_text="📕 最新擊癌利存摺", contents=flex)
@@ -1229,12 +1620,12 @@ def handle_text_message(event):
                 return
 
             # 若使用者未點選「購藥登記」，直接在聊天室打數字 ➔ 智慧意圖確認（校正庫存 vs 加買新藥）
-            confirm_flex = get_stock_confirm_flex(user, num)
+            confirm_flex = get_stock_confirm_flex(eff_user, num)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📋 存藥確認與校正", contents=confirm_flex))
 
         # 非純數字文字訊息（一般對話、問候語或指令）
         else:
-            if user.get("is_registered", False):
+            if eff_user.get("is_registered", False):
                 msgs = get_welcome_registered_messages(user, user_id)
             else:
                 msgs = get_welcome_unregistered_messages()
