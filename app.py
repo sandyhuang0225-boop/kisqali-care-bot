@@ -598,9 +598,9 @@ def get_consent_form_flex():
                 {
                     "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
                     "action": {
-                        "type": "uri",
-                        "label": "開啟存摺查看流程",
-                        "uri": "https://kisqali-care-bot.onrender.com/"
+                        "type": "postback",
+                        "label": "📕 查看我的病友存摺",
+                        "data": "action=passbook"
                     }
                 },
                 {
@@ -615,25 +615,24 @@ def get_consent_form_flex():
         }
     }
 
-# ----------------- 病友存摺摘要卡片 (URL 安全百分比編碼) -----------------
+# ----------------- 擊癌利專屬病友存摺（全收斂回 LINE，零跳轉） -----------------
 def get_profile_summary_flex(user_id):
     p = user_profiles.get(user_id, {
-        "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 21, "code": "KSQ-0001", "pharmacy": "躍獅寶湖藥局"
+        "hosp": "三軍總醫院", "cancer": "早期乳癌", "dose": 2, "stock": 53, "code": "KSQ-0001", "pharmacy": "躍獅寶湖藥局"
     })
     dose = p.get("dose", 2)
-    stock = p.get("stock", 21)
+    stock = p.get("stock", 53)
     days = stock // dose if dose > 0 else 999
     is_alert = days <= 14 and dose > 0
+    code = p.get("code", "KSQ-0001")
+    cancer = p.get("cancer", "早期乳癌")
+    hosp = p.get("hosp", "三軍總醫院")
+    pharmacy = p.get("pharmacy", "躍獅寶湖藥局")
 
-    # 安全百分比編碼 URL 參數，避免 LINE API 因中文字元報錯 400
-    query_params = {
-        "code": p.get("code", "KSQ-0001"),
-        "hosp": p.get("hosp", "三軍總醫院"),
-        "cancer": p.get("cancer", "早期乳癌"),
-        "dose": str(dose),
-        "stock": str(stock)
-    }
-    encoded_url = f"https://kisqali-care-bot.onrender.com/?{urllib.parse.urlencode(query_params)}"
+    # 盒數與零存整付試算 (每盒 63 顆)
+    cur_box = max(1, (stock + 62) // 63)
+    rem_to_box = 63 - (stock % 63) if (stock % 63) != 0 else 0
+    left_boxes = max(0, 6 - cur_box)
 
     return {
         "type": "bubble",
@@ -641,8 +640,21 @@ def get_profile_summary_flex(user_id):
             "type": "box", "layout": "vertical",
             "backgroundColor": "#065F46" if not is_alert else "#B45309",
             "contents": [
-                {"type": "text", "text": "🎉 建檔完成！您的專屬擊癌利存摺", "weight": "bold", "color": "#FFFFFF", "size": "sm"},
-                {"type": "text", "text": f"病友專屬代號：{p.get('code', 'KSQ-0001')}", "color": "#E6FFFA", "size": "xs", "margin": "xs"}
+                {
+                    "type": "box", "layout": "horizontal", "alignItems": "center",
+                    "contents": [
+                        {"type": "text", "text": "📕 擊癌利專屬存摺", "weight": "bold", "color": "#FFFFFF", "size": "md", "flex": 5},
+                        {
+                            "type": "box", "layout": "vertical",
+                            "backgroundColor": "#047857" if not is_alert else "#92400E",
+                            "cornerRadius": "md", "paddingAll": "xs", "alignItems": "center", "flex": 2,
+                            "contents": [
+                                {"type": "text", "text": "買1送1", "size": "xxs", "color": "#FFFFFF", "weight": "bold", "align": "center"}
+                            ]
+                        }
+                    ]
+                },
+                {"type": "text", "text": f"病友代號：{code} ｜ 專屬綁定存摺", "color": "#E6FFFA" if not is_alert else "#FEF3C7", "size": "xs", "margin": "xs"}
             ]
         },
         "body": {
@@ -652,20 +664,20 @@ def get_profile_summary_flex(user_id):
                     "type": "box", "layout": "horizontal",
                     "contents": [
                         {"type": "text", "text": "就診醫院", "size": "xs", "color": "#64748B", "flex": 2},
-                        {"type": "text", "text": p.get("hosp", "三軍總醫院"), "size": "xs", "color": "#0F172A", "weight": "bold", "flex": 4}
+                        {"type": "text", "text": f"{hosp}", "size": "xs", "color": "#0F172A", "weight": "bold", "flex": 4}
                     ]
                 },
                 {
                     "type": "box", "layout": "horizontal",
                     "contents": [
                         {"type": "text", "text": "治療類型", "size": "xs", "color": "#64748B", "flex": 2},
-                        {"type": "text", "text": p.get("cancer", "早期乳癌"), "size": "xs", "color": "#0F172A", "flex": 4}
+                        {"type": "text", "text": f"{cancer} (第1年 1:1補助)", "size": "xs", "color": "#0F172A", "flex": 4}
                     ]
                 },
                 {
                     "type": "box", "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "每日劑量", "size": "xs", "color": "#64748B", "flex": 2},
+                        {"type": "text", "text": "每日處方", "size": "xs", "color": "#64748B", "flex": 2},
                         {"type": "text", "text": f"每日 {dose} 顆 ({dose*200}mg)", "size": "xs", "color": "#0F172A", "weight": "bold", "flex": 4}
                     ]
                 },
@@ -673,17 +685,25 @@ def get_profile_summary_flex(user_id):
                     "type": "box", "layout": "horizontal",
                     "contents": [
                         {"type": "text", "text": "手邊存藥", "size": "xs", "color": "#64748B", "flex": 2},
-                        {"type": "text", "text": f"{stock} 顆（預估可服 {days} 天）", "size": "xs", "color": "#B91C1C" if is_alert else "#0F172A", "weight": "bold", "flex": 4}
+                        {"type": "text", "text": f"{stock} 顆（預估服 {days} 天）", "size": "xs", "color": "#B91C1C" if is_alert else "#0F172A", "weight": "bold", "flex": 4}
                     ]
                 },
                 {
                     "type": "box", "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "對應藥局", "size": "xs", "color": "#64748B", "flex": 2},
-                        {"type": "text", "text": p.get("pharmacy", "躍獅寶湖藥局"), "size": "xs", "color": "#047857", "weight": "bold", "flex": 4}
+                        {"type": "text", "text": "領藥藥局", "size": "xs", "color": "#64748B", "flex": 2},
+                        {"type": "text", "text": f"{pharmacy}", "size": "xs", "color": "#047857", "weight": "bold", "flex": 4}
                     ]
                 },
-                {"type": "separator", "margin": "md"},
+                {"type": "separator", "margin": "sm"},
+                {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#F8FAFC", "cornerRadius": "md", "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": f"📊 第一年自費晉級進度：第 {cur_box} / 6 盒", "size": "xs", "weight": "bold", "color": "#1E293B"},
+                        {"type": "text", "text": f"🪙 零存整付：再自費 {rem_to_box} 顆達標滿盒贈藥" if rem_to_box > 0 else "🪙 零存整付：已達標滿盒贈藥資格！", "size": "xxs", "color": "#D97706" if rem_to_box > 0 else "#059669", "weight": "bold"},
+                        {"type": "text", "text": f"👉 再自費 {left_boxes} 盒即可晉級第2年「買1送3」方案！" if left_boxes > 0 else "🎉 已達成 6 盒！即將晉級「買1送3」！", "size": "xxs", "color": "#64748B"}
+                    ]
+                },
                 {
                     "type": "text",
                     "text": "⚠️【安全提醒】目前存藥不足兩週！回診請記得請醫師補開處方！" if is_alert else "✅ 存藥充足（大於兩週），請依醫囑安心服藥！",
@@ -692,19 +712,21 @@ def get_profile_summary_flex(user_id):
             ]
         },
         "footer": {
-            "type": "box", "layout": "horizontal", "spacing": "sm",
+            "type": "box", "layout": "vertical", "spacing": "sm",
             "contents": [
                 {
-                    "type": "button", "style": "primary", "color": "#991B1B", "height": "sm",
-                    "action": {
-                        "type": "uri",
-                        "label": "開啟存摺",
-                        "uri": encoded_url
-                    }
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {"type": "button", "style": "primary", "color": "#047857", "height": "sm", "action": {"type": "postback", "label": "🧾 購藥登記", "data": "action=receipt"}},
+                        {"type": "button", "style": "primary", "color": "#C2410C", "height": "sm", "action": {"type": "postback", "label": "⚙️ 劑量調整", "data": "action=dose"}}
+                    ]
                 },
                 {
-                    "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "postback", "label": "重新建檔", "data": "action=onboard"}
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "🏥 門診速報", "data": "action=doctor"}},
+                        {"type": "button", "style": "secondary", "height": "sm", "action": {"type": "postback", "label": "📬 領藥流程", "data": "action=sop"}}
+                    ]
                 }
             ]
         }
