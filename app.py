@@ -15,7 +15,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, PostbackEvent,
-    FlexSendMessage
+    FlexSendMessage, FollowEvent
 )
 
 # 台灣時區 (UTC+8)
@@ -704,6 +704,41 @@ def get_profile_summary_flex(user_id):
         }
     }
 
+# ----------------- 專屬問候語（已建檔 vs 未建檔） -----------------
+def get_welcome_registered_messages(user, user_id):
+    code = user.get("code", "KSQ-0001")
+    hosp = user.get("hosp", "三軍總醫院")
+    stock = user.get("stock", 0)
+    dose = user.get("dose", 2)
+    days = stock // dose if dose > 0 else 999
+    
+    greeting_text = (
+        f"🌸【{code}】病友您好！\n"
+        f"您已做過病友建檔。\n\n"
+        f"📋 目前存摺摘要：\n"
+        f"• 就診醫院：{hosp}\n"
+        f"• 每日劑量：{dose} 顆 ({dose*200}mg)\n"
+        f"• 手邊存藥：{stock} 顆（預估可服 {days} 天）\n\n"
+        f"💡 若有新購藥物請點選下方【購藥登記】；若需查詢完整補助與服藥進度請點選【我的存摺】！"
+    )
+    flex = get_profile_summary_flex(user_id)
+    return [
+        TextSendMessage(text=greeting_text),
+        FlexSendMessage(alt_text=f"📕 {code} 您的擊癌利存摺", contents=flex)
+    ]
+
+def get_welcome_unregistered_messages():
+    greeting_text = (
+        "👋 您好！歡迎使用擊癌利病患照護小管家。\n\n"
+        "⚠️ 您目前【尚未做過病友建檔】！\n"
+        "請先至下方選單點選【✨ 病友建檔】建立基本資料，以利為您建立專屬病友代號、鎖定責任醫院，並啟動用藥安全管理！"
+    )
+    flex = get_unregistered_prompt_flex("開戶建檔")
+    return [
+        TextSendMessage(text=greeting_text),
+        FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex)
+    ]
+
 @app.route("/", methods=["GET"])
 def index():
     if os.path.exists("index.html"):
@@ -1165,14 +1200,13 @@ def handle_text_message(event):
             confirm_flex = get_stock_confirm_flex(user, num)
             line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📋 存藥確認與校正", contents=confirm_flex))
 
-        # 非純數字文字訊息
+        # 非純數字文字訊息（一般對話、問候語或指令）
         else:
-            if not user.get("is_registered", False):
-                flex = get_unregistered_prompt_flex("擊癌利病患照護小管家")
-                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="⚠️ 請先完成病友開戶建檔", contents=flex))
+            if user.get("is_registered", False):
+                msgs = get_welcome_registered_messages(user, user_id)
             else:
-                flex = get_profile_summary_flex(user_id)
-                line_bot_api.reply_message(reply_token, FlexSendMessage(alt_text="📕 您的擊癌利存摺", contents=flex))
+                msgs = get_welcome_unregistered_messages()
+            line_bot_api.reply_message(reply_token, msgs)
 
     except Exception as e:
         app.logger.error(f"Error in handle_text_message: {traceback.format_exc()}")
@@ -1180,6 +1214,22 @@ def handle_text_message(event):
             line_bot_api.reply_message(reply_token, TextSendMessage(text="⚠️ 系統處理中發生問題，請稍候重試或點擊選單！"))
         except Exception:
             pass
+
+# ----------------- 加入好友事件處理器 (FollowEvent) -----------------
+@handler.add(FollowEvent)
+def handle_follow(event):
+    user_id = event.source.user_id
+    reply_token = event.reply_token
+    user = get_or_create_user(user_id)
+
+    try:
+        if user.get("is_registered", False):
+            msgs = get_welcome_registered_messages(user, user_id)
+        else:
+            msgs = get_welcome_unregistered_messages()
+        line_bot_api.reply_message(reply_token, msgs)
+    except Exception as e:
+        app.logger.error(f"Error in handle_follow: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
