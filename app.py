@@ -749,6 +749,10 @@ def index():
 def health():
     return "OK", 200
 
+@app.route("/api/users", methods=["GET"])
+def api_users():
+    return jsonify({"profiles": user_profiles, "counter": patient_counter}), 200
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
