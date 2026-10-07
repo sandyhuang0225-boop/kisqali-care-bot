@@ -49,6 +49,37 @@
       </div>
     </div>
 
+    <!-- 🌟 全期抗癌里程碑・自費目標達成率 Banner -->
+    <div class="bg-gradient-to-br from-amber-50 via-rose-50 to-orange-50 p-4 border-b border-rose-200">
+      <div class="flex justify-between items-center mb-1.5">
+        <div class="flex items-center gap-1.5">
+          <span class="text-lg">🎯</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-amber-900" id="total_rate_label">全期自費達成率（EBC 3年期計畫）</span>
+        </div>
+        <div class="flex items-baseline gap-1">
+          <span class="text-2xl font-black text-rose-700 font-mono" id="total_rate_pct">36.4%</span>
+        </div>
+      </div>
+
+      <!-- 全期大進度條 -->
+      <div class="w-full bg-slate-200 rounded-full h-3.5 overflow-hidden p-0.5 border border-amber-200/80 shadow-inner">
+        <div id="total_rate_bar" class="bg-gradient-to-r from-amber-500 via-rose-500 to-rose-600 h-2.5 rounded-full transition-all duration-700 shadow" style="width: 36.4%;"></div>
+      </div>
+
+      <div class="flex justify-between items-center text-xs mt-1.5">
+        <span class="text-slate-600">已自費：<strong id="total_paid_boxes_txt" class="text-rose-700 font-bold">4</strong> / <span id="total_target_boxes_txt">11</span> 盒</span>
+        <span class="text-slate-500" id="total_boxes_remain_txt">再自購 7 盒即圓滿完成 3 年支持計畫</span>
+      </div>
+
+      <!-- 暖心衛教激勵小語 -->
+      <div id="encouragement_box" class="mt-2.5 bg-white/80 backdrop-blur-sm rounded-lg p-2.5 border border-rose-200/70 flex items-start gap-2 text-xs text-rose-900 shadow-sm">
+        <span class="text-base flex-shrink-0">💖</span>
+        <p class="font-medium" id="encouragement_txt">
+          太棒了！您已經完成超過 1/3 的自購里程！最辛苦的第一階段就快挺過囉，小管家陪您一起堅持！
+        </p>
+      </div>
+    </div>
+
     <!-- 方案階段進度條 -->
     <div class="bg-rose-50/70 p-4 border-b border-rose-100 flex flex-col gap-2">
       <div class="flex justify-between items-center">
@@ -63,7 +94,7 @@
 
       <div>
         <div class="flex justify-between text-xs text-slate-600 mb-1">
-          <span>第一年晉級自費進度：<strong id="paid_boxes_txt" class="text-rose-700">4</strong> / 6 盒</span>
+          <span>當前階段晉級自費進度：<strong id="paid_boxes_txt" class="text-rose-700">4</strong> / 6 盒</span>
           <span class="text-rose-600 font-medium" id="boxes_left_txt">再自購 2 盒晉級「買1送3」！</span>
         </div>
         <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
@@ -366,13 +397,28 @@
         </div>
       </div>
 
+      <!-- 🎯 全期自費達成率 (亮給醫師重點) -->
+      <div class="bg-gradient-to-r from-amber-500 to-rose-600 p-3.5 rounded-xl text-white shadow-sm flex justify-between items-center">
+        <div>
+          <div class="text-[11px] font-bold text-amber-100 flex items-center gap-1">
+            <span>🎯</span> 全期自費達成率（支持計畫總里程）
+          </div>
+          <div class="text-xs font-medium text-white/90 mt-0.5" id="doc_rate_sub_txt">
+            EBC 3年期（已自購 4 / 11 盒）
+          </div>
+        </div>
+        <div class="text-2xl font-black font-mono tracking-tight" id="doc_rate_pct">
+          36.4%
+        </div>
+      </div>
+
       <div class="bg-rose-50 p-4 rounded-xl border border-rose-200 space-y-2">
         <div class="flex justify-between items-center">
           <span class="text-xs font-semibold text-rose-800">當前方案階段</span>
           <span class="text-base font-black text-rose-900" id="doc_stage_txt">第 1 年（買 1 送 1）</span>
         </div>
         <div class="flex justify-between items-center">
-          <span class="text-xs font-semibold text-rose-800">自費盒數進度</span>
+          <span class="text-xs font-semibold text-rose-800">當前階段晉級進度</span>
           <span class="text-sm font-bold text-rose-900" id="doc_boxes_txt">已自購 4 / 6 盒</span>
         </div>
       </div>
@@ -568,6 +614,39 @@
     };
 
     function recalculate() {
+      // 0. 全期自費達成率計算 (EBC 3年目標 11 盒 / MBC 5年目標 15 盒 - 選項 A 心理激勵模型)
+      let totalTarget = state.patientType === "1" ? 11 : 15;
+      let totalRatePct = Math.min(100, (state.paidBoxes / totalTarget) * 100);
+      let totalRatePctStr = totalRatePct.toFixed(1) + "%";
+      let boxesRemain = Math.max(0, totalTarget - state.paidBoxes);
+
+      document.getElementById('total_rate_pct').innerText = totalRatePctStr;
+      document.getElementById('total_rate_bar').style.width = `${Math.min(100, totalRatePct)}%`;
+      document.getElementById('total_paid_boxes_txt').innerText = state.paidBoxes;
+      document.getElementById('total_target_boxes_txt').innerText = totalTarget;
+      
+      let typeLabel = state.patientType === "1" ? "EBC 早期乳癌（3年期）" : "MBC 晚期乳癌（5年期）";
+      let yearGoal = state.patientType === "1" ? "3 年" : "5 年";
+      document.getElementById('total_rate_label').innerText = `全期自費達成率（${typeLabel}）`;
+      document.getElementById('total_boxes_remain_txt').innerText = boxesRemain > 0 
+        ? `再自購 ${boxesRemain} 盒即圓滿完成 ${yearGoal}支持計畫`
+        : `🎉 已圓滿達成全期自購目標！`;
+
+      // 暖心動態激勵小語
+      let encTxt = "";
+      if (totalRatePct >= 100) {
+        encTxt = `🏆 恭喜圓滿完成全期 ${yearGoal}支持計畫！您真的非常勇敢、非常了不起！`;
+      } else if (totalRatePct >= 75) {
+        encTxt = `🌟 已經邁入最後衝刺期！達成率高達 ${totalRatePctStr}，勝利就在眼前，為您的堅持喝采！`;
+      } else if (totalRatePct >= 50) {
+        encTxt = `🎉 恭喜突破一半大關（${totalRatePctStr}）！最辛苦的第一階段已經挺過，接下來藥物補助愈來愈多囉！`;
+      } else if (totalRatePct >= 30) {
+        encTxt = `💖 太棒了！您已經完成超過 1/3 的自購里程（${totalRatePctStr}）！離買1送3愈來愈近囉，繼續加油！`;
+      } else {
+        encTxt = `🌱 萬事起頭難，每一步都是為健康扎根！最辛苦的第一階段，小管家陪您一起堅持！`;
+      }
+      document.getElementById('encouragement_txt').innerText = encTxt;
+
       // 1. 剩餘天數計算 (結合劑量，暫停服藥則不耗損)
       let daysLeft = 0;
       if (state.currentDose > 0) {
@@ -647,8 +726,11 @@
         noteBox.classList.add('hidden');
       }
 
-      // 6. 同步更新醫師速報卡
+      // 6. 同步更新醫師速報卡 (含全期達成率)
       document.getElementById('doc_hosp_txt').innerText = hospInfo.name;
+      document.getElementById('doc_rate_pct').innerText = totalRatePctStr;
+      document.getElementById('doc_rate_sub_txt').innerText = `${state.patientType === "1" ? "EBC 3年期" : "MBC 5年期"}（已自購 ${state.paidBoxes} / ${totalTarget} 盒）`;
+      document.getElementById('doc_boxes_txt').innerText = `已自購 ${state.paidBoxes} / 6 盒`;
       document.getElementById('doc_dose_txt').innerText = state.currentDose > 0 ? `每日 ${state.currentDose} 顆 (${state.currentDose * 200}mg)` : "暫停服藥中";
       document.getElementById('doc_stock_txt').innerText = `${state.stockPills} 顆（剩 ${daysLeft} 天份）`;
       document.getElementById('doc_action_txt').innerText = daysLeft <= 14 ? "⚠️ 存藥不足兩週，建議開立處方補藥" : "✅ 存藥充足（大於兩週）";

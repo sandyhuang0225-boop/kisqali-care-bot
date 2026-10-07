@@ -864,9 +864,28 @@ def get_profile_summary_flex(user_id, is_caregiver=False):
     pharmacy = p.get("pharmacy", "躍獅寶湖藥局")
 
     # 盒數與零存整付試算 (每盒 63 顆)
-    cur_box = max(1, (stock + 62) // 63)
+    cur_box = p.get("boxes", max(1, (stock + 62) // 63) if stock > 0 else 0)
     rem_to_box = 63 - (stock % 63) if (stock % 63) != 0 else 0
     left_boxes = max(0, 6 - cur_box)
+
+    # 全期自費達成率計算 (EBC 3年目標 11 盒 / MBC 5年目標 15 盒 - 選項 A 心理激勵模型)
+    is_ebc = "早期" in cancer or "EBC" in cancer
+    target_boxes = 11 if is_ebc else 15
+    year_label = "EBC 3年期" if is_ebc else "MBC 5年期"
+    year_goal = "3 年" if is_ebc else "5 年"
+    rate_pct = min(100.0, round((cur_box / target_boxes) * 100, 1))
+    boxes_remain = max(0, target_boxes - cur_box)
+
+    if rate_pct >= 100:
+        enc_txt = f"🏆 恭喜圓滿完成全期 {year_goal}支持計畫！您真的非常勇敢、非常了不起！"
+    elif rate_pct >= 75:
+        enc_txt = f"🌟 邁入最後衝刺！達成率高達 {rate_pct}%，勝利就在眼前！"
+    elif rate_pct >= 50:
+        enc_txt = f"🎉 恭喜突破一半大關（{rate_pct}%）！最辛苦的第一階段已挺過，接下來藥物補助愈來愈多囉！"
+    elif rate_pct >= 30:
+        enc_txt = f"💖 太棒了！已完成超過 1/3 自購里程（{rate_pct}%）！離買1送3愈來愈近囉！"
+    else:
+        enc_txt = f"🌱 萬事起頭難，每一步都是為健康扎根！最辛苦的第一階段，小管家陪您一起堅持！"
 
     header_title = "📕 擊癌利存摺（家屬端）" if is_caregiver else "📕 擊癌利專屬存摺"
     badge_color = "#4338CA" if is_caregiver else ("#047857" if not is_alert else "#92400E")
@@ -899,6 +918,30 @@ def get_profile_summary_flex(user_id, is_caregiver=False):
         "body": {
             "type": "box", "layout": "vertical", "spacing": "sm",
             "contents": [
+                {
+                    "type": "box", "layout": "vertical",
+                    "backgroundColor": "#FFFBEB", "cornerRadius": "md",
+                    "paddingAll": "sm", "spacing": "xs",
+                    "contents": [
+                        {
+                            "type": "box", "layout": "horizontal", "alignItems": "center",
+                            "contents": [
+                                {"type": "text", "text": f"🎯 全期自費達成率（{year_label}）", "size": "xs", "weight": "bold", "color": "#92400E", "flex": 4},
+                                {"type": "text", "text": f"{rate_pct}%", "size": "md", "weight": "bold", "color": "#B45309", "align": "end", "flex": 2}
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "text": f"已自費 {cur_box} / {target_boxes} 盒" + (f"（再自購 {boxes_remain} 盒圓滿完成）" if boxes_remain > 0 else "（已全數自購達標！）"),
+                            "size": "xxs", "color": "#78350F", "weight": "bold"
+                        },
+                        {
+                            "type": "text",
+                            "text": enc_txt,
+                            "size": "xxs", "color": "#92400E", "wrap": True
+                        }
+                    ]
+                },
                 {
                     "type": "box", "layout": "horizontal",
                     "contents": [
@@ -1353,6 +1396,13 @@ def handle_postback(event):
             hosp = eff_user.get("hosp", "三軍總醫院")
             cancer = eff_user.get("cancer", "早期乳癌")
             days = stock // dose if dose > 0 else 999
+
+            cur_box = eff_user.get("boxes", max(1, (stock + 62) // 63) if stock > 0 else 0)
+            is_ebc = "早期" in cancer or "EBC" in cancer
+            target_boxes = 11 if is_ebc else 15
+            year_label = "EBC 3年期" if is_ebc else "MBC 5年期"
+            rate_pct = min(100.0, round((cur_box / target_boxes) * 100, 1))
+
             doc_flex = {
                 "type": "bubble",
                 "header": {
@@ -1366,6 +1416,14 @@ def handle_postback(event):
                     "type": "box", "layout": "vertical", "spacing": "sm",
                     "contents": [
                         {"type": "text", "text": f"病友代號：{code} ｜ 醫院：{hosp}", "size": "xs", "weight": "bold", "color": "#991B1B"},
+                        {
+                            "type": "box", "layout": "horizontal", "alignItems": "center", "backgroundColor": "#FEF3C7", "cornerRadius": "md", "paddingAll": "sm",
+                            "contents": [
+                                {"type": "text", "text": f"🎯 全期自費達成率 ({year_label})", "size": "xs", "weight": "bold", "color": "#92400E", "flex": 4},
+                                {"type": "text", "text": f"{rate_pct}%", "size": "lg", "weight": "bold", "color": "#B45309", "align": "end", "flex": 2}
+                            ]
+                        },
+                        {"type": "text", "text": f"自費進度：已自購 {cur_box} / {target_boxes} 盒（全程目標 {target_boxes} 盒）", "size": "xxs", "color": "#78350F", "weight": "bold"},
                         {"type": "text", "text": f"治療類型：{cancer} (第 1 階段 買 1 送 1)", "size": "xs", "color": "#334155"},
                         {"type": "text", "text": f"目前劑量：每日 {dose} 顆 ({dose*200}mg)", "size": "sm", "weight": "bold", "color": "#0F172A"},
                         {"type": "text", "text": f"手邊存藥：{stock} 顆（預估剩餘 {days} 天）", "size": "sm", "weight": "bold", "color": "#B91C1C" if days <= 14 else "#0F172A"},
